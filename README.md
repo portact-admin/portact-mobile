@@ -2,30 +2,34 @@
 
 A read-only React Native portfolio management and financial tracking app built with Expo. Import your PortAct backup and get a live, beautifully visualised view of your entire financial life — stocks, mutual funds, crypto, real estate, deposits, expenses, and more.
 
+> ⚠️ **This app requires PortAct to function.**
+> PortAct Mobile is a companion viewer for the [PortAct](https://github.com/portact-admin/PortAct) app. It has no data of its own — it reads exclusively from a PortAct backup file. **Without an active PortAct account and a valid backup export, this app will not work.**
+
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Features](#features)
-3. [Architecture](#architecture)
-4. [Screens](#screens)
-5. [Data Model](#data-model)
-6. [Services](#services)
-7. [State Management](#state-management)
-8. [Theme System](#theme-system)
-9. [Live Price Refresh](#live-price-refresh)
-10. [Supported Asset Types](#supported-asset-types)
-11. [Getting Started](#getting-started)
-12. [Building an APK](#building-an-apk)
-13. [Project Structure](#project-structure)
-14. [Dependencies](#dependencies)
+2. [Dependency on PortAct](#dependency-on-portact)
+3. [Features](#features)
+4. [Architecture](#architecture)
+5. [Screens](#screens)
+6. [Data Model](#data-model)
+7. [Services](#services)
+8. [State Management](#state-management)
+9. [Theme System](#theme-system)
+10. [Live Price Refresh](#live-price-refresh)
+11. [Supported Asset Types](#supported-asset-types)
+12. [Getting Started](#getting-started)
+13. [Building an APK](#building-an-apk)
+14. [Project Structure](#project-structure)
+15. [Dependencies](#dependencies)
 
 ---
 
 ## Overview
 
-PortAct Mobile is the companion mobile app for the [PortAct](https://portact.in) personal finance platform. It is strictly **read-only** — it never modifies your data. You import a PortAct backup file (from Google Drive or manually), and the app gives you a real-time, richly visualised view of your portfolio.
+PortAct Mobile is the companion mobile app for the [PortAct](https://github.com/portact-admin/PortAct) personal finance platform. It is strictly **read-only** — it never modifies your data. You import a PortAct backup file (from Google Drive or manually), and the app gives you a real-time, richly visualised view of your portfolio.
 
 **Key principles:**
 - Read-only by design — your data is never modified
@@ -33,6 +37,34 @@ PortAct Mobile is the companion mobile app for the [PortAct](https://portact.in)
 - Live prices overlaid on backup data without altering it
 - Supports 40+ asset types across Indian and global markets
 - Built for the PortAct backup format (export versions 1.0–11.0)
+
+---
+
+## Dependency on PortAct
+
+**PortAct Mobile cannot function as a standalone app.** It is entirely dependent on [PortAct](https://github.com/portact-admin/PortAct) — the core personal finance management platform.
+
+### Why this dependency exists
+
+PortAct Mobile has no backend, no database, and no ability to create or edit financial data. It is a pure viewer. All portfolio data — assets, transactions, expenses, snapshots, and account information — originates from PortAct and is delivered via a backup export file.
+
+### What you need before using this app
+
+1. **An active PortAct account** — sign up at the PortAct platform ([source](https://github.com/portact-admin/PortAct))
+2. **Your financial data entered in PortAct** — holdings, transactions, expenses, etc.
+3. **A PortAct backup file** — exported from PortAct as a `.json` file (export version 1.0–11.0 supported)
+4. **A way to deliver the backup to this app** — either:
+   - Store it in Google Drive and connect via the in-app Google Drive integration, or
+   - Transfer it manually to your phone and import via the file picker
+
+### What happens without PortAct
+
+If you open PortAct Mobile without a backup file, the app will show the onboarding screen and cannot proceed further. There is no demo mode, no sample data, and no way to enter data directly in the app.
+
+### PortAct repository
+
+The PortAct source code and setup instructions are available at:
+**[https://github.com/portact-admin/PortAct](https://github.com/portact-admin/PortAct)**
 
 ---
 
