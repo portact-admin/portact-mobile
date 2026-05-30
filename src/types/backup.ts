@@ -1,0 +1,278 @@
+/** Raw shape of the PortAct JSON backup (export version 11.0). */
+
+export interface BackupFile {
+  export_version: string;
+  exported_at: string;
+  user_profile: UserProfile;
+  portfolios: RawPortfolio[];
+  bank_accounts: RawBankAccount[];
+  demat_accounts: RawDematAccount[];
+  crypto_accounts: RawCryptoAccount[];
+  assets: RawAsset[];
+  transactions: RawTransaction[];
+  expenses: RawExpense[];
+  expense_categories: RawExpenseCategory[];
+  incomes: RawIncome[];
+  portfolio_snapshots: RawPortfolioSnapshot[];
+  mutual_fund_holdings: RawMutualFundHolding[];
+  macro_data_points: RawMacroDataPoint[];
+  mf_systematic_plans: RawMFSystematicPlan[];
+  ff_profile: RawFFProfile | null;
+  ff_income_sources: RawFFIncomeSource[];
+  ff_milestones: RawFFMilestone[];
+  ff_debts: RawFFDebt[];
+  ff_scenarios: RawFFScenario[];
+  fp_profile: RawFPProfile | null;
+  fp_goals: RawFPGoal[];
+  settings: RawAppSetting[];
+  master_asset_types: RawAssetTypeMaster[];
+  master_asset_categories: RawAssetCategoryMaster[];
+  ref_rates: RawReferenceRate[];
+}
+
+export interface UserProfile {
+  full_name: string | null;
+  phone: string | null;
+  date_of_birth: string | null;
+  gender: string | null;
+  city: string | null;
+  state: string | null;
+  is_employed: boolean | null;
+  basic_salary: number | null;
+  preferences: Record<string, unknown> | null;
+}
+
+export interface RawPortfolio {
+  id: number;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  currency: string;
+  created_at: string;
+}
+
+export interface RawBankAccount {
+  id: number;
+  portfolio_id: number | null;
+  bank_name: string;
+  account_number: string | null;
+  account_holder_name: string | null;
+  account_type: string | null;
+  current_balance: number | null;
+  is_active: boolean;
+}
+
+export interface RawDematAccount {
+  id: number;
+  portfolio_id: number | null;
+  broker_name: string;
+  account_number: string | null;
+  account_holder_name: string | null;
+  cash_balance: number | null;
+  is_active: boolean;
+}
+
+export interface RawCryptoAccount {
+  id: number;
+  portfolio_id: number | null;
+  exchange_name: string;
+  account_label: string | null;
+  cash_balance: number | null;
+  is_active: boolean;
+}
+
+export interface RawAsset {
+  id: number;
+  portfolio_id: number | null;
+  demat_account_id: number | null;
+  asset_type: string;
+  name: string;
+  symbol: string | null;
+  api_symbol: string | null;
+  isin: string | null;
+  quantity: number | null;
+  average_buy_price: number | null;
+  current_price: number | null;
+  current_value: number | null;
+  total_invested: number | null;
+  profit_loss: number | null;
+  profit_loss_percentage: number | null;
+  xirr: number | null;
+  currency: string;
+  broker_name: string | null;
+  account_holder_name: string | null;
+  account_id: string | null;
+  is_active: boolean;
+  details: Record<string, unknown> | null;
+  last_price_update: string | null;
+  created_at: string;
+}
+
+export interface RawTransaction {
+  id: number;
+  asset_id: number;
+  transaction_type: string;
+  quantity: number | null;
+  price: number | null;
+  amount: number | null;
+  transaction_date: string;
+  notes: string | null;
+}
+
+export interface RawExpense {
+  id: number;
+  category_id: number | null;
+  amount: number;
+  description: string | null;
+  merchant_name: string | null;
+  transaction_date: string;
+  payment_method: string | null;
+  classification: string | null;
+  is_amortized_entry: boolean;
+}
+
+export interface RawExpenseCategory {
+  id: number;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  is_system: boolean;
+}
+
+export interface RawIncome {
+  id: number;
+  source: string;
+  amount: number;
+  income_date: string;
+  description: string | null;
+  frequency: string | null;
+}
+
+export interface RawPortfolioSnapshot {
+  id: number;
+  snapshot_date: string;
+  total_current_value: number;
+  total_invested: number;
+  total_profit_loss: number;
+  total_profit_loss_percentage: number | null;
+  total_assets_count: number | null;
+  asset_snapshots: RawAssetSnapshot[];
+}
+
+export interface RawAssetSnapshot {
+  asset_id: number | null;
+  bank_account_id: number | null;
+  demat_account_id: number | null;
+  crypto_account_id: number | null;
+  snapshot_source: string | null;
+  asset_type: string | null;
+  asset_name: string | null;
+  asset_symbol: string | null;
+  current_value: number;
+  total_invested: number | null;
+  profit_loss: number | null;
+  profit_loss_percentage: number | null;
+}
+
+export interface RawMutualFundHolding {
+  id: number;
+  asset_id: number;
+  scheme_name: string | null;
+  nav: number | null;
+  units: number | null;
+  current_value: number | null;
+}
+
+export interface RawMFSystematicPlan {
+  id: number;
+  asset_id: number;
+  plan_type: string;
+  amount: number;
+  frequency: string;
+  start_date: string | null;
+  is_active: boolean;
+}
+
+export interface RawFFProfile {
+  current_age: number | null;
+  retirement_age: number | null;
+  monthly_expenses: number | null;
+  expected_inflation: number | null;
+  expected_return: number | null;
+  fire_number: number | null;
+}
+
+export interface RawFFIncomeSource {
+  id: number;
+  name: string;
+  monthly_amount: number;
+  is_active: boolean;
+}
+
+export interface RawFFMilestone {
+  id: number;
+  name: string;
+  target_amount: number;
+  target_date: string | null;
+}
+
+export interface RawFFDebt {
+  id: number;
+  name: string;
+  outstanding_amount: number;
+  interest_rate: number | null;
+}
+
+export interface RawFFScenario {
+  id: number;
+  name: string;
+  monthly_expenses: number;
+  retirement_age: number;
+}
+
+export interface RawFPProfile {
+  id: number;
+  risk_profile: string | null;
+  investment_horizon: number | null;
+}
+
+export interface RawFPGoal {
+  id: number;
+  name: string;
+  target_amount: number;
+  target_date: string | null;
+  priority: string | null;
+}
+
+export interface RawAppSetting {
+  key: string;
+  value: string | null;
+  value_type: string;
+}
+
+export interface RawAssetTypeMaster {
+  name: string;
+  display_name: string;
+  category: string;
+  is_active: boolean;
+}
+
+export interface RawAssetCategoryMaster {
+  name: string;
+  display_name: string;
+  sort_order: number;
+}
+
+export interface RawReferenceRate {
+  rate_type: string;
+  rate_value: number;
+  effective_date: string;
+}
+
+export interface RawMacroDataPoint {
+  id: number;
+  series: string;
+  period: string;
+  label: string;
+  value: number;
+}
