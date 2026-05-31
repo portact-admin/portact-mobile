@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "833400940320",
+    "project_id": "inspiring-tower-163204",
+    "storage_bucket": ""
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833400940320:android:0000000000000000",
+        "android_client_info": {
+          "package_name": "com.portact.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "833400940320-nvsk8dj1qata72sbqdema0bpf1s9qh91.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.portact.mobile",
+            "certificate_hash": "a4add3fb77b6856cfb0ffa74ea6d519a8d205b9e"
+          }
+        },
+        {
+          "client_id": "833400940320-osg91vn25f88iuhqm9l6gmk0j645j9ub.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.portact.mobile",
+            "certificate_hash": "f49a80805a1f53040e4cd48a1ceba616b155f2e3"
+          }
+        },
+        {
+          "client_id": "833400940320-ofe4sta7e3u8dcabucllb1r5vmkqgoii.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9ss66OfMteqVDW3LPvtzpzr4Q68LHXh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "833400940320-ofe4sta7e3u8dcabucllb1r5vmkqgoii.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

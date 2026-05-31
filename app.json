@@ -19,7 +19,8 @@
       },
       "package": "com.portact.mobile",
       "versionCode": 3,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",

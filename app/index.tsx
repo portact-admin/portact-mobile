@@ -85,19 +85,29 @@ export default function AppSplash() {
     GoogleSignin.configure({ webClientId: WEB_CLIENT_ID, scopes: DRIVE_SCOPES });
 
     (async () => {
-      // ── Step 1: load local storage (never short-circuit) ──────────────
+      // ── Step 1: load local storage ────────────────────────────────────
       await loadFromStorage();
       const localLoaded = usePortfolioStore.getState().status === 'loaded';
       if (localLoaded) setHasData(true);
 
-      // ── Step 2: always probe Drive — show picker if multiple profiles ──
+      // Hide the system splash immediately — never block on Drive
+      SplashScreen.hideAsync();
+
+      // ── Step 2: probe Drive with a hard timeout ────────────────────────
       setCheckingDrive(true);
       try {
-        await GoogleSignin.signInSilently();
-        const files = await googleDriveService.listBackupFiles();
+        const files = await Promise.race([
+          (async () => {
+            await GoogleSignin.signInSilently();
+            return await googleDriveService.listBackupFiles();
+          })(),
+          new Promise<DriveFile[]>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 10_000),
+          ),
+        ]);
 
         if (files.length >= 2) {
-          // Multiple backups → always show profile picker
+          // Multiple backups → show profile picker
           setProfiles(files.map((f) => ({ file: f, userName: extractUserName(f.name) })));
           nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
 
@@ -118,12 +128,11 @@ export default function AppSplash() {
           nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
         }
       } catch {
-        // Not signed in or Drive unavailable
+        // Not signed in, Drive unavailable, or timed out — proceed with local data
         nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
       } finally {
         setCheckingDrive(false);
         setReady(true);
-        SplashScreen.hideAsync();
       }
     })();
   }, []);

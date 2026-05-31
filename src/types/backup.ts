@@ -32,6 +32,7 @@ export interface BackupFile {
   ff_scenarios?: RawFFScenario[];
   fp_profile?: RawFPProfile | null;
   fp_goals?: RawFPGoal[];
+  fp_plans?: RawFPPlan[];
   app_settings?: RawAppSetting[];
   master_data?: RawMasterData;
   ref_rates?: RawReferenceRate[];
@@ -286,9 +287,47 @@ export interface RawFPProfile {
 export interface RawFPGoal {
   id: number;
   name: string;
+  goal_type?: string | null;
   target_amount: number;
   target_date: string | null;
+  current_savings?: number | null;
   priority: string | null;
+  status?: string | null;
+  projected_value_at_target_date?: number | null;
+  monthly_required?: number | null;
+  is_active?: boolean;
+}
+
+export interface RawFPActionItem {
+  id: number;
+  plan_id: number;
+  action_key: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: number;
+  estimated_impact: string | null;
+  estimated_amount: number | null;
+  target_date: string | null;
+  is_completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface RawFPPlan {
+  id: number;
+  version: number;
+  ai_provider: string;
+  ai_model: string | null;
+  name: string | null;
+  description: string | null;
+  health_score: number | null;
+  plan_json: Record<string, unknown>;
+  is_active: boolean;
+  accepted_at: string | null;
+  generation_time_seconds: number | null;
+  created_at: string;
+  action_items: RawFPActionItem[];
 }
 
 export interface RawAppSetting {
