@@ -46,6 +46,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "94a165ca-f4bd-4005-a12b-3318e3f9c637"
+      }
+    },
+    "owner": "portact-admin"
   }
 }
