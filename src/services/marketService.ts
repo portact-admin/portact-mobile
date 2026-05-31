@@ -210,34 +210,68 @@ export async function fetchUsFearGreed(): Promise<SentimentData | null> {
   }
 }
 
-// ─── Financial News — Yahoo Finance RSS ───────────────────────────────────────
+// ─── Financial News — multi-source RSS ───────────────────────────────────────
 
-function parseRssXml(xml: string): NewsItem[] {
+const NEWS_SOURCES = [
+  { name: 'ET Markets',   url: 'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms' },
+  { name: 'MoneyControl', url: 'https://www.moneycontrol.com/rss/MCtopnews.xml' },
+  { name: 'LiveMint',     url: 'https://www.livemint.com/rss/markets' },
+];
+
+const RSS_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+};
+
+function parseRssXml(xml: string, fallbackSource: string): NewsItem[] {
   const items: NewsItem[] = [];
   const itemRx = /<item>([\s\S]*?)<\/item>/g;
   let m: RegExpExecArray | null;
-  while ((m = itemRx.exec(xml)) !== null && items.length < 10) {
+  while ((m = itemRx.exec(xml)) !== null && items.length < 8) {
     const raw = m[1];
     const title = (raw.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s)?.[1] ?? '').trim();
     const link  = (raw.match(/<link>(.*?)<\/link>/s)?.[1] ?? '').trim();
     const pub   = (raw.match(/<pubDate>(.*?)<\/pubDate>/s)?.[1] ?? '').trim();
     const desc  = (raw.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/s)?.[1] ?? '')
       .replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim().slice(0, 180);
-    // Source: extract from link domain
-    let source = 'Yahoo Finance';
+    let source = fallbackSource;
     try { source = new URL(link).hostname.replace(/^www\./, ''); } catch { /* ok */ }
     if (title) items.push({ title, link, source, pubDate: pub, description: desc });
   }
   return items;
 }
 
-export async function fetchFinancialNews(): Promise<NewsItem[]> {
+async function fetchRssFeed(source: { name: string; url: string }): Promise<NewsItem[]> {
   try {
-    const res = await fetch('https://finance.yahoo.com/rss/topstories');
+    // Append timestamp to bypass CDN caches that ignore request headers.
+    const res = await fetch(`${source.url}?_t=${Date.now()}`, { headers: RSS_HEADERS });
     if (!res.ok) return [];
-    const xml = await res.text();
-    return parseRssXml(xml);
+    return parseRssXml(await res.text(), source.name);
   } catch {
     return [];
   }
+}
+
+export async function fetchFinancialNews(): Promise<NewsItem[]> {
+  const batches = await Promise.all(NEWS_SOURCES.map(fetchRssFeed));
+  const all = batches.flat();
+
+  // Deduplicate by normalised title, sort newest-first, keep top 15.
+  const seen = new Set<string>();
+  const unique = all.filter((item) => {
+    const key = item.title.toLowerCase().replace(/\s+/g, ' ').slice(0, 60);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  unique.sort((a, b) => {
+    const ta = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+    const tb = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+    return tb - ta;
+  });
+
+  return unique.slice(0, 15);
 }

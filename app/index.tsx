@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Image, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Image, StyleSheet, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -159,8 +159,12 @@ export default function AppSplash() {
       checkDailySync();
       startPriceRefresh();
       router.replace('/(tabs)/');
-    } catch {
-      // let user retry
+    } catch (err) {
+      const { BackupParseError } = await import('@services/backupParser');
+      const msg = err instanceof BackupParseError
+        ? err.message
+        : 'Could not load this profile. Please try again.';
+      Alert.alert('Load Failed', msg);
     } finally {
       setLoadingProfile(null);
     }

@@ -16,6 +16,7 @@ import { useTheme } from '@hooks/useTheme';
 import { usePortfolioStore } from '@store/usePortfolioStore';
 import { googleDriveService, GoogleDriveError } from '@services/googleDrive';
 import { storage } from '@services/storage';
+import { BackupParseError } from '@services/backupParser';
 import { Typography } from '@components/ui/Typography';
 import { Button } from '@components/ui/Button';
 
@@ -30,9 +31,10 @@ const CARD_BORDER = 'rgba(255,255,255,0.12)';
 export default function OnboardingScreen() {
   const { colors, spacing, radius } = useTheme();
   const router = useRouter();
-  const loadFromString = usePortfolioStore((s) => s.loadFromString);
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+
+  const loadFromString = usePortfolioStore((s) => s.loadFromString);
 
   const [driveLoading, setDriveLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -41,22 +43,15 @@ export default function OnboardingScreen() {
     setDriveLoading(true);
     try {
       await googleDriveService.signIn();
-      const { content, file } = await googleDriveService.fetchLatestBackup();
-      await loadFromString(content, {
-        fileName: file.name,
-        exportVersion: '',
-        exportedAt: file.modifiedTime,
-        loadedAt: new Date().toISOString(),
-        source: 'google_drive',
-      });
       await storage.markOnboardingDone();
-      router.replace('/(tabs)/');
+      // Navigate back to index so the profile picker logic runs
+      // (handles 1 file auto-load and multi-profile picker correctly)
+      router.replace('/');
     } catch (err) {
-      const msg =
-        err instanceof GoogleDriveError
-          ? err.message
-          : 'Could not connect to Google Drive. Please try again.';
-      Alert.alert('Google Drive Error', msg);
+      const msg = err instanceof GoogleDriveError
+        ? err.message
+        : 'Could not connect to Google Drive. Please try again.';
+      Alert.alert('Connection Error', msg);
     } finally {
       setDriveLoading(false);
     }
@@ -73,18 +68,23 @@ export default function OnboardingScreen() {
       const asset = result.assets[0];
       if (!asset?.uri) throw new Error('No file selected.');
       const content = await FileSystem.readAsStringAsync(asset.uri);
+      const now = new Date().toISOString();
       await loadFromString(content, {
         fileName: asset.name ?? 'backup.json',
         exportVersion: '',
-        exportedAt: new Date().toISOString(),
-        loadedAt: new Date().toISOString(),
+        exportedAt: now,
+        loadedAt: now,
         source: 'manual',
       });
       await storage.markOnboardingDone();
       router.replace('/(tabs)/');
     } catch (err) {
-      const msg = (err as Error).message ?? 'Could not read the file.';
-      setTimeout(() => Alert.alert('Import Error', msg), 300);
+      // Only show the message for domain errors we write ourselves.
+      // Raw JS/system errors (ReferenceError, TypeError, etc.) must never reach the user.
+      const msg = err instanceof BackupParseError
+        ? err.message
+        : 'Could not import the backup file. Please make sure you are using a valid PortAct backup.';
+      setTimeout(() => Alert.alert('Import Failed', msg), 300);
     } finally {
       setUploadLoading(false);
     }

@@ -1,9 +1,9 @@
 import { BackupFile, RawAsset } from '@models/backup';
 import { Asset } from '@models/portfolio';
 
-const SUPPORTED_VERSIONS = new Set([
-  '1.0','2.0','3.0','4.0','5.0','6.0','7.0','8.0','9.0','10.0','11.0',
-]);
+// Oldest major version the app can meaningfully parse. Bumping this is the only
+// breaking change that should ever require an app update.
+const MIN_SUPPORTED_MAJOR = 1;
 
 export class BackupParseError extends Error {
   constructor(message: string) {
@@ -20,16 +20,28 @@ export function parseBackupJson(raw: string): BackupFile {
     throw new BackupParseError('Invalid JSON — file could not be parsed.');
   }
 
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new BackupParseError('Backup file has unexpected format.');
   }
 
   const data = parsed as Record<string, unknown>;
 
-  if (!data.export_version || !SUPPORTED_VERSIONS.has(data.export_version as string)) {
+  // Validate version is a recognisable PortAct semver string (e.g. "13.0").
+  const versionStr = data.export_version as string | undefined;
+  const major = versionStr ? parseInt(versionStr.split('.')[0], 10) : NaN;
+  if (!versionStr || isNaN(major) || major < MIN_SUPPORTED_MAJOR) {
     throw new BackupParseError(
-      `Unsupported backup version: ${data.export_version ?? 'unknown'}. Please export a fresh backup from PortAct.`,
+      `Unrecognised backup format (version: ${versionStr ?? 'unknown'}). ` +
+      'This file may not be a PortAct backup.',
     );
+  }
+
+  // Validate the two fields the app absolutely cannot function without.
+  if (!Array.isArray(data.portfolios)) {
+    throw new BackupParseError('Backup is missing portfolio data — the file may be corrupted.');
+  }
+  if (!Array.isArray(data.assets)) {
+    throw new BackupParseError('Backup is missing asset data — the file may be corrupted.');
   }
 
   return data as unknown as BackupFile;
@@ -79,7 +91,7 @@ export function normaliseAsset(
 
 export function buildTypeDisplayMap(backup: BackupFile): Record<string, string> {
   const map: Record<string, string> = {};
-  for (const t of backup.master_asset_types ?? []) {
+  for (const t of backup.master_data?.asset_types ?? []) {
     map[t.name] = t.display_name;
   }
   return map;
@@ -87,7 +99,7 @@ export function buildTypeDisplayMap(backup: BackupFile): Record<string, string> 
 
 export function buildTypeCategoryMap(backup: BackupFile): Record<string, string> {
   const map: Record<string, string> = {};
-  for (const t of backup.master_asset_types ?? []) {
+  for (const t of backup.master_data?.asset_types ?? []) {
     map[t.name] = t.category;
   }
   return map;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BackupFile } from '@models/backup';
+import { BackupFile, RawMFRating } from '@models/backup';
 import { Asset, Portfolio, AssetAllocation, PortfolioSnapshot, PortfolioSummary, AssetFilter } from '@models/portfolio';
 import {
   parseBackupJson,
@@ -33,6 +33,9 @@ interface PortfolioStore {
   summary: PortfolioSummary | null;
   typeDisplayMap: Record<string, string>;
 
+  // MF ratings keyed by asset id
+  mfRatingsByAssetId: Map<number, RawMFRating>;
+
   // live price overlay (applied on top of backup prices)
   livePrices: Map<number, LivePrice>;
   lastPriceRefresh: Date | null;
@@ -49,6 +52,14 @@ interface PortfolioStore {
   setSelectedPortfolio(id: number | null): void;
   setFilter(patch: Partial<AssetFilter>): void;
   clearData(): Promise<void>;
+}
+
+function buildMFRatingsMap(backup: BackupFile): Map<number, RawMFRating> {
+  const map = new Map<number, RawMFRating>();
+  for (const r of backup.mf_ratings ?? []) {
+    map.set(r.asset_id, r);
+  }
+  return map;
 }
 
 function deriveState(backup: BackupFile): Pick<
@@ -106,6 +117,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   snapshots: [],
   summary: null,
   typeDisplayMap: {},
+  mfRatingsByAssetId: new Map(),
   livePrices: new Map(),
   lastPriceRefresh: null,
   priceRefreshing: false,
@@ -122,7 +134,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     set({ status: 'loading', error: null });
     try {
       const backup = parseBackupJson(json);
-      await storage.saveBackup(json, meta);
+      await storage.saveBackup(json, { ...meta, exportVersion: backup.export_version });
       const derived = deriveState(backup);
       const defaultPortfolio = derived.portfolios.find((p) => p.isDefault) ?? derived.portfolios[0] ?? null;
       set({
@@ -130,6 +142,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         backup,
         backupMeta: meta,
         ...derived,
+        mfRatingsByAssetId: buildMFRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
       });
     } catch (err) {
@@ -158,6 +171,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         backup,
         backupMeta: meta,
         ...derived,
+        mfRatingsByAssetId: buildMFRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
       });
 
@@ -233,6 +247,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       snapshots: [],
       summary: null,
       typeDisplayMap: {},
+      mfRatingsByAssetId: new Map(),
       selectedPortfolioId: null,
     });
   },

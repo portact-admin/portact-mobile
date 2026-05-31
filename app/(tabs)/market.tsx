@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Linking, Pressable, ScrollView, View,
+  ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -385,6 +385,8 @@ function MacroTile({ label, value, unit, subLabel, bgColor }: {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
+const REFRESH_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
 export default function MarketScreen() {
   const { colors, spacing } = useTheme();
   const backup = usePortfolioStore((s) => s.backup);
@@ -397,6 +399,15 @@ export default function MarketScreen() {
   const [liveVix, setLiveVix]         = useState<number | null>(null);
   const [news, setNews]               = useState<NewsItem[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
+
+  // Tracks whether the component is still mounted so stale async updates are dropped.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ── Macro data from backup ──
   const macro = useMemo(() => {
@@ -418,21 +429,38 @@ export default function MarketScreen() {
     };
   }, [backup]);
 
-  // ── Live fetch on mount ──
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    Promise.allSettled([
-      fetchBtcFearGreed().then((v) => { if (alive && v) setBtcFng(v); }),
-      fetchUsFearGreed().then((v)  => { if (alive && v) setUsFng(v); }),
-      fetchMarketIndices().then((v) => { if (alive) setIndices(v); }),
-      fetchCommodityPrices().then((v) => { if (alive) setCommodities(v); }),
-      fetchUsdInr().then((v) => { if (alive && v) setUsdInr(v); }),
-      fetchIndiaVix().then((v) => { if (alive && v != null) setLiveVix(v); }),
-      fetchFinancialNews().then((v) => { if (alive) setNews(v); }),
-    ]).finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+  // ── Core fetch — fires on mount and on manual pull-to-refresh ──
+  const doFetch = useCallback(async () => {
+    await Promise.allSettled([
+      fetchBtcFearGreed().then((v)    => { if (mountedRef.current && v) setBtcFng(v); }),
+      fetchUsFearGreed().then((v)     => { if (mountedRef.current && v) setUsFng(v); }),
+      fetchMarketIndices().then((v)   => { if (mountedRef.current) setIndices(v); }),
+      fetchCommodityPrices().then((v) => { if (mountedRef.current) setCommodities(v); }),
+      fetchUsdInr().then((v)          => { if (mountedRef.current && v) setUsdInr(v); }),
+      fetchIndiaVix().then((v)        => { if (mountedRef.current && v != null) setLiveVix(v); }),
+      fetchFinancialNews().then((v)   => { if (mountedRef.current) setNews(v); }),
+    ]);
+    if (mountedRef.current) setLastFetchedAt(new Date());
   }, []);
+
+  // ── Initial load ──
+  useEffect(() => {
+    setLoading(true);
+    doFetch().finally(() => { if (mountedRef.current) setLoading(false); });
+  }, [doFetch]);
+
+  // ── Pull-to-refresh with 1-hour cooldown ──
+  const onRefresh = useCallback(async () => {
+    if (lastFetchedAt && Date.now() - lastFetchedAt.getTime() < REFRESH_COOLDOWN_MS) {
+      // Within cooldown — acknowledge the gesture but skip the fetch.
+      setRefreshing(true);
+      setTimeout(() => { if (mountedRef.current) setRefreshing(false); }, 400);
+      return;
+    }
+    setRefreshing(true);
+    await doFetch();
+    if (mountedRef.current) setRefreshing(false);
+  }, [lastFetchedAt, doFetch]);
 
   // ── Computed India MMI (PortAct fallback: VIX 60% + Nifty PE 40%) ──
   const computedMmi = useMemo(() => {
@@ -485,15 +513,44 @@ export default function MarketScreen() {
 
   const vixDisplay = liveVix ?? macro.indiaVix;
 
+  const updatedLabel = useMemo(() => {
+    if (!lastFetchedAt) return null;
+    return dayjs(lastFetchedAt).fromNow();
+  }, [lastFetchedAt]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <ScrollView
         contentContainerStyle={{ padding: spacing.md, gap: spacing.lg, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="title2" weight="700">Market Insights</Typography>
-          {loading && <ActivityIndicator size="small" color={colors.accent} />}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <View style={{ gap: 2 }}>
+            <Typography variant="title2" weight="700">Market Insights</Typography>
+            {updatedLabel && (
+              <Typography variant="micro" color={colors.textTertiary}>
+                Updated {updatedLabel}
+              </Typography>
+            )}
+          </View>
+          <Pressable
+            onPress={onRefresh}
+            disabled={loading || refreshing}
+            hitSlop={12}
+            style={{ padding: 4 }}
+          >
+            {(loading || refreshing)
+              ? <ActivityIndicator size="small" color={colors.accent} />
+              : <Ionicons name="refresh-outline" size={22} color={colors.textSecondary} />}
+          </Pressable>
         </View>
 
         {/* ── Sentiment Gauges ── */}

@@ -2,7 +2,7 @@
   "expo": {
     "name": "PortAct",
     "slug": "portact-mobile",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "scheme": "portact",
@@ -18,7 +18,7 @@
         "backgroundColor": "#0A0A0F"
       },
       "package": "com.portact.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "predictiveBackGestureEnabled": false
     },
     "web": {

@@ -18,10 +18,26 @@ const NO_QTY_TYPES = new Set([
   'precious_stone', 'painting', 'collectible', 'physical_other',
 ]);
 
+const MF_TYPES = new Set([
+  'equity_mutual_fund', 'hybrid_mutual_fund', 'debt_mutual_fund', 'mutual_fund',
+]);
+
 function formatQty(quantity: number, assetType: string): string {
   if (quantity % 1 === 0) return `${quantity}`;
   const d = assetType === 'crypto' ? 6 : 4;
   return quantity.toFixed(d).replace(/\.?0+$/, '');
+}
+
+function ratingColor(rating: number, gain: string, warning: string, loss: string): string {
+  if (rating >= 7.5) return gain;
+  if (rating >= 5) return warning;
+  return loss;
+}
+
+function ratingBg(rating: number, gainSoft: string, warningSoft: string, lossSoft: string): string {
+  if (rating >= 7.5) return gainSoft;
+  if (rating >= 5) return warningSoft;
+  return lossSoft;
 }
 
 // Fixed widths for the two right-hand columns — keep them consistent across all rows.
@@ -33,9 +49,10 @@ interface AssetRowProps {
 }
 
 export function AssetRow({ asset }: AssetRowProps) {
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, radius } = useTheme();
   const router = useRouter();
   const livePrices = usePortfolioStore((s) => s.livePrices);
+  const mfRatingsByAssetId = usePortfolioStore((s) => s.mfRatingsByAssetId);
 
   const live = livePrices.get(asset.id);
   const currentPrice = live?.price ?? asset.currentPrice;
@@ -75,6 +92,9 @@ export function AssetRow({ asset }: AssetRowProps) {
     ? formatPercent(asset.profitLossPercent, 1)
     : null;
 
+  const isMF = MF_TYPES.has(asset.assetType);
+  const mfRating = isMF ? mfRatingsByAssetId.get(asset.id) : undefined;
+
   return (
     <Pressable
       onPress={() => router.push(`/asset/${asset.id}`)}
@@ -96,11 +116,48 @@ export function AssetRow({ asset }: AssetRowProps) {
         <Typography variant="footnote" weight="600" style={{ lineHeight: 17 }}>
           {asset.name}
         </Typography>
-        {subtitleParts.length > 0 && (
-          <Typography variant="micro" color={colors.textSecondary} numberOfLines={1}>
-            {subtitleParts.join('  ·  ')}
-          </Typography>
-        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {subtitleParts.length > 0 && (
+            <Typography variant="micro" color={colors.textSecondary} numberOfLines={1}>
+              {subtitleParts.join('  ·  ')}
+            </Typography>
+          )}
+          {mfRating?.rating != null && (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                router.push(`/mf-rating/${asset.id}` as any);
+              }}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`MF rating ${mfRating.rating.toFixed(1)} out of 10`}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 2,
+                backgroundColor: ratingBg(
+                  mfRating.rating!,
+                  colors.gainSoft,
+                  `${colors.warning}22`,
+                  colors.lossSoft,
+                ),
+                borderRadius: radius.full,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Typography
+                variant="micro"
+                weight="700"
+                color={ratingColor(mfRating.rating!, colors.gain, colors.warning, colors.loss)}
+              >
+                ★ {mfRating.rating.toFixed(1)}
+              </Typography>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* Invested column */}

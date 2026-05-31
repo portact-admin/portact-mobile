@@ -1,33 +1,52 @@
-/** Raw shape of the PortAct JSON backup (export version 11.0). */
-
+/**
+ * Raw shape of the PortAct JSON backup.
+ *
+ * Only `export_version`, `portfolios`, and `assets` are required — those are
+ * validated at parse time. Everything else is optional so the app keeps working
+ * as PortAct adds new fields in future export versions without needing mobile
+ * app updates.
+ */
 export interface BackupFile {
   export_version: string;
-  exported_at: string;
-  user_profile: UserProfile;
+  exported_at?: string;
+  user_profile?: UserProfile;
   portfolios: RawPortfolio[];
-  bank_accounts: RawBankAccount[];
-  demat_accounts: RawDematAccount[];
-  crypto_accounts: RawCryptoAccount[];
+  bank_accounts?: RawBankAccount[];
+  demat_accounts?: RawDematAccount[];
+  crypto_accounts?: RawCryptoAccount[];
   assets: RawAsset[];
-  transactions: RawTransaction[];
-  expenses: RawExpense[];
-  expense_categories: RawExpenseCategory[];
-  incomes: RawIncome[];
-  portfolio_snapshots: RawPortfolioSnapshot[];
-  mutual_fund_holdings: RawMutualFundHolding[];
-  macro_data_points: RawMacroDataPoint[];
-  mf_systematic_plans: RawMFSystematicPlan[];
-  ff_profile: RawFFProfile | null;
-  ff_income_sources: RawFFIncomeSource[];
-  ff_milestones: RawFFMilestone[];
-  ff_debts: RawFFDebt[];
-  ff_scenarios: RawFFScenario[];
-  fp_profile: RawFPProfile | null;
-  fp_goals: RawFPGoal[];
-  settings: RawAppSetting[];
-  master_asset_types: RawAssetTypeMaster[];
-  master_asset_categories: RawAssetCategoryMaster[];
-  ref_rates: RawReferenceRate[];
+  transactions?: RawTransaction[];
+  expenses?: RawExpense[];
+  expense_categories?: RawExpenseCategory[];
+  incomes?: RawIncome[];
+  portfolio_snapshots?: RawPortfolioSnapshot[];
+  mutual_fund_holdings?: RawMutualFundHolding[];
+  macro_data_points?: RawMacroDataPoint[];
+  mf_systematic_plans?: RawMFSystematicPlan[];
+  mf_ratings?: RawMFRating[];
+  statement_passwords?: RawStatementPassword[];
+  ff_profile?: RawFFProfile | null;
+  ff_income_sources?: RawFFIncomeSource[];
+  ff_milestones?: RawFFMilestone[];
+  ff_debts?: RawFFDebt[];
+  ff_scenarios?: RawFFScenario[];
+  fp_profile?: RawFPProfile | null;
+  fp_goals?: RawFPGoal[];
+  app_settings?: RawAppSetting[];
+  master_data?: RawMasterData;
+  ref_rates?: RawReferenceRate[];
+  [key: string]: unknown;
+}
+
+export interface RawMasterData {
+  asset_classes?: RawAssetClassMaster[];
+  asset_categories?: RawAssetCategoryMaster[];
+  asset_types?: RawAssetTypeMaster[];
+  banks?: RawBankMaster[];
+  brokers?: RawBrokerMaster[];
+  crypto_exchanges?: RawCryptoExchangeMaster[];
+  institutions?: RawInstitutionMaster[];
+  [key: string]: unknown;
 }
 
 export interface UserProfile {
@@ -193,6 +212,34 @@ export interface RawMFSystematicPlan {
   is_active: boolean;
 }
 
+export interface RawMFRating {
+  id: number;
+  user_id: number;
+  asset_id: number;
+  fund_name: string | null;
+  category: string | null;
+  fund_house: string | null;
+  rating: number | null;
+  rating_breakdown: Record<string, unknown> | null;
+  key_metrics: Record<string, unknown> | null;
+  peer_comparison: Record<string, unknown> | null;
+  best_in_class_name: string | null;
+  best_in_class_reason: string | null;
+  strengths: string[] | null;
+  weaknesses: string[] | null;
+  justification: string | null;
+  investment_recommendation: string | null;
+  suitable_for: string | null;
+  ai_provider: string | null;
+}
+
+export interface RawStatementPassword {
+  id: number;
+  user_id: number;
+  institution_key: string;
+  password: string;
+}
+
 export interface RawFFProfile {
   current_age: number | null;
   retirement_age: number | null;
@@ -250,6 +297,16 @@ export interface RawAppSetting {
   value_type: string;
 }
 
+export interface RawAssetClassMaster {
+  name: string;
+  display_label: string;
+  color: string | null;
+  default_return_pct: number | null;
+  liquidation_priority: number | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
 export interface RawAssetTypeMaster {
   name: string;
   display_name: string;
@@ -261,6 +318,31 @@ export interface RawAssetCategoryMaster {
   name: string;
   display_name: string;
   sort_order: number;
+}
+
+export interface RawBankMaster {
+  name: string;
+  display_name: string | null;
+  is_active: boolean;
+}
+
+export interface RawBrokerMaster {
+  name: string;
+  display_name: string | null;
+  is_active: boolean;
+}
+
+export interface RawCryptoExchangeMaster {
+  name: string;
+  display_name: string | null;
+  is_active: boolean;
+}
+
+export interface RawInstitutionMaster {
+  name: string;
+  display_name: string | null;
+  institution_type: string | null;
+  is_active: boolean;
 }
 
 export interface RawReferenceRate {
