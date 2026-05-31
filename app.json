@@ -7,7 +7,6 @@
     "icon": "./assets/logo.png",
     "scheme": "portact",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.portact.mobile",
