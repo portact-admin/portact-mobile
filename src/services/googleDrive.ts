@@ -68,6 +68,19 @@ async function driveRequest<T>(
   return res.json() as Promise<T>;
 }
 
+/**
+ * Derives a display name from a PortAct backup filename.
+ * "portact_backup_john_doe.json" → "John Doe"
+ */
+export function extractUserName(fileName: string): string {
+  const match = fileName.match(/^portact_backup_(.+)\.json$/i);
+  if (!match) return fileName;
+  return match[1]
+    .replace(/[_\-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export const googleDriveService = {
   configure(webClientId: string): void {
     configureGoogleSignIn(webClientId);
