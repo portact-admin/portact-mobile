@@ -92,6 +92,29 @@ export const storage = {
     return (await get(KEYS.GOOGLE_WEB_CLIENT_ID)) ?? '';
   },
 
+  async saveUserBackup(driveFileId: string, json: string, meta: BackupMeta): Promise<void> {
+    const path = `${FileSystem.documentDirectory}portact_user_${driveFileId}.json`;
+    await Promise.all([
+      FileSystem.writeAsStringAsync(path, json, { encoding: FileSystem.EncodingType.UTF8 }),
+      set(`portact:user_meta_${driveFileId}`, JSON.stringify(meta)),
+    ]);
+  },
+
+  async loadUserBackup(driveFileId: string): Promise<{ json: string; meta: BackupMeta } | null> {
+    const path = `${FileSystem.documentDirectory}portact_user_${driveFileId}.json`;
+    const [info, rawMeta] = await Promise.all([
+      FileSystem.getInfoAsync(path),
+      get(`portact:user_meta_${driveFileId}`),
+    ]);
+    if (!info.exists || !rawMeta) return null;
+    try {
+      const json = await FileSystem.readAsStringAsync(path, { encoding: FileSystem.EncodingType.UTF8 });
+      return { json, meta: JSON.parse(rawMeta) as BackupMeta };
+    } catch {
+      return null;
+    }
+  },
+
   async clearAll(): Promise<void> {
     await Promise.all([
       AsyncStorage.multiRemove(Object.values(KEYS)),

@@ -32,15 +32,28 @@ async function checkDailySync(): Promise<void> {
     if (!lastSync) return;
     const hoursSince = (Date.now() - new Date(lastSync).getTime()) / 3_600_000;
     if (hoursSince < 24) return;
+
     await GoogleSignin.signInSilently();
-    const { content, file } = await googleDriveService.fetchLatestBackup();
-    await usePortfolioStore.getState().loadFromString(content, {
-      fileName: file.name,
-      exportVersion: '',
-      exportedAt: file.modifiedTime,
-      loadedAt: new Date().toISOString(),
-      source: 'google_drive',
-    });
+    const files = await googleDriveService.listBackupFiles();
+    if (files.length === 0) return;
+
+    const activeFileName = usePortfolioStore.getState().backupMeta?.fileName;
+
+    for (const file of files) {
+      const json = await googleDriveService.downloadFile(file.id);
+      const meta = {
+        fileName:      file.name,
+        exportVersion: '',
+        exportedAt:    file.modifiedTime,
+        loadedAt:      new Date().toISOString(),
+        source:        'google_drive' as const,
+      };
+      await storage.saveUserBackup(file.id, json, meta);
+      // For the currently active profile, also refresh the in-memory store and active backup
+      if (file.name === activeFileName) {
+        await usePortfolioStore.getState().loadFromString(json, meta);
+      }
+    }
   } catch {
     // silent — daily sync is best-effort
   }
@@ -72,30 +85,24 @@ export default function AppSplash() {
     GoogleSignin.configure({ webClientId: WEB_CLIENT_ID, scopes: DRIVE_SCOPES });
 
     (async () => {
-      // ── Step 1: try local storage ──────────────────────────────────────
+      // ── Step 1: load local storage (never short-circuit) ──────────────
       await loadFromStorage();
-      const { status } = usePortfolioStore.getState();
+      const localLoaded = usePortfolioStore.getState().status === 'loaded';
+      if (localLoaded) setHasData(true);
 
-      if (status === 'loaded') {
-        nextRoute.current = '/(tabs)/';
-        setHasData(true);
-        setReady(true);
-        SplashScreen.hideAsync();
-        return;
-      }
-
-      // ── Step 2: no local data — silently probe Google Drive ────────────
+      // ── Step 2: always probe Drive — show picker if multiple profiles ──
       setCheckingDrive(true);
       try {
         await GoogleSignin.signInSilently();
         const files = await googleDriveService.listBackupFiles();
 
-        if (files.length === 0) {
-          // Nothing on Drive → show onboarding
-          nextRoute.current = '/onboarding';
+        if (files.length >= 2) {
+          // Multiple backups → always show profile picker
+          setProfiles(files.map((f) => ({ file: f, userName: extractUserName(f.name) })));
+          nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
 
-        } else if (files.length === 1) {
-          // Exactly one backup → auto-load
+        } else if (files.length === 1 && !localLoaded) {
+          // Single backup, no local data → auto-load
           const content = await googleDriveService.downloadFile(files[0].id);
           await usePortfolioStore.getState().loadFromString(content, {
             fileName:      files[0].name,
@@ -108,15 +115,11 @@ export default function AppSplash() {
           setHasData(true);
 
         } else {
-          // Multiple backups → show profile picker
-          setProfiles(
-            files.map((f) => ({ file: f, userName: extractUserName(f.name) })),
-          );
-          nextRoute.current = '/onboarding'; // fallback if user dismisses picker
+          nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
         }
       } catch {
-        // Not signed in or Drive unavailable → let onboarding handle it
-        nextRoute.current = '/onboarding';
+        // Not signed in or Drive unavailable
+        nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
       } finally {
         setCheckingDrive(false);
         setReady(true);
@@ -130,14 +133,26 @@ export default function AppSplash() {
     if (loadingProfile) return;
     setLoadingProfile(profile.file.id);
     try {
-      const content = await googleDriveService.downloadFile(profile.file.id);
-      await usePortfolioStore.getState().loadFromString(content, {
+      let json: string;
+      let meta = {
         fileName:      profile.file.name,
         exportVersion: '',
         exportedAt:    profile.file.modifiedTime,
         loadedAt:      new Date().toISOString(),
-        source:        'google_drive',
-      });
+        source:        'google_drive' as const,
+      };
+
+      const cached = await storage.loadUserBackup(profile.file.id);
+      if (cached) {
+        json = cached.json;
+        // keep exportedAt from cache but refresh loadedAt
+        meta = { ...cached.meta, loadedAt: new Date().toISOString() };
+      } else {
+        json = await googleDriveService.downloadFile(profile.file.id);
+        await storage.saveUserBackup(profile.file.id, json, meta);
+      }
+
+      await usePortfolioStore.getState().loadFromString(json, meta);
       setProfiles([]);
       setHasData(true);
       nextRoute.current = '/(tabs)/';
