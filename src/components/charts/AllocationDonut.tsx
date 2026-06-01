@@ -4,7 +4,7 @@ import { PieChart } from 'react-native-gifted-charts';
 import { AssetAllocation } from '@models/portfolio';
 import { Typography } from '@components/ui/Typography';
 import { useTheme } from '@hooks/useTheme';
-import { formatCompact, formatPercent } from '@utils/formatters';
+import { formatCompact } from '@utils/formatters';
 
 interface AllocationDonutProps {
   allocations: AssetAllocation[];
@@ -54,20 +54,25 @@ export function AllocationDonut({ allocations, totalValue, size = 180 }: Allocat
         />
       </View>
 
-      {/* Vertical legend — same style as expense category chart */}
-      <View style={{ gap: 6 }}>
+      {/* Vertical legend */}
+      <View style={{ gap: 8 }}>
         {allocations.map((a) => (
           <View key={a.assetType} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: a.color }} />
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: a.color, flexShrink: 0 }} />
             <Typography variant="footnote" style={{ flex: 1 }} numberOfLines={1}>
               {a.displayName}
             </Typography>
             <Typography variant="footnote" weight="600" color={colors.textSecondary}>
               {formatCompact(a.currentValue)}
             </Typography>
-            <Typography variant="micro" color={colors.textTertiary} style={{ width: 36, textAlign: 'right' }}>
-              {formatPercent(a.percentage, 1)}
-            </Typography>
+            <View style={{
+              minWidth: 52,
+              alignItems: 'flex-end',
+            }}>
+              <Typography variant="footnote" weight="700" color={colors.textPrimary}>
+                {a.percentage.toFixed(1)}%
+              </Typography>
+            </View>
           </View>
         ))}
       </View>

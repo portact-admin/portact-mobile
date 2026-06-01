@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@hooks/useTheme';
 import { usePortfolioStore } from '@store/usePortfolioStore';
-import { AssetRow, AssetColumnHeader } from '@components/portfolio/AssetRow';
+import { AssetRow, AssetColumnHeader, SortKey, SortDir } from '@components/portfolio/AssetRow';
 import { Typography } from '@components/ui/Typography';
 import { Divider } from '@components/ui/Divider';
 import { EmptyState } from '@components/ui/EmptyState';
@@ -98,10 +98,18 @@ function TabSummaryCard({ assets, style }: { assets: Asset[]; style?: object }) 
 export default function PortfolioScreen() {
   const { colors, spacing, radius } = useTheme();
   const router = useRouter();
-  const { assets, status, priceRefreshing, refreshLivePrices } = usePortfolioStore();
+  const { assets, status, priceRefreshing, refreshLivePrices, livePrices } = usePortfolioStore();
   const [activeTab, setActiveTab] = useState(TABS[0].key);
+  const [sortKey, setSortKey] = useState<SortKey>('value');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [refreshResult, setRefreshResult] = useState<{ refreshed: number; total: number } | null>(null);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    };
+  }, []);
 
   // Tab scroll
   const tabScrollRef = useRef<ScrollView>(null);
@@ -140,15 +148,39 @@ export default function PortfolioScreen() {
     if (tabsWithAssets.length > 0 && !tabsWithAssets.find((t) => t.key === activeTab)) {
       setActiveTab(tabsWithAssets[0].key);
     }
-  }, [tabsWithAssets]);
+  }, [tabsWithAssets, activeTab]);
 
   const activeAssets = useMemo(() => {
     const tab = TABS.find((t) => t.key === activeTab);
     if (!tab) return [];
-    return assets
-      .filter((a) => tab.types.includes(a.assetType))
-      .sort((a, b) => b.currentValue - a.currentValue);
-  }, [assets, activeTab]);
+    const filtered = assets.filter((a) => tab.types.includes(a.assetType));
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name')     cmp = a.name.localeCompare(b.name);
+      if (sortKey === 'invested') cmp = a.totalInvested - b.totalInvested;
+      if (sortKey === 'value')    cmp = a.currentValue - b.currentValue;
+      if (sortKey === 'day') {
+        // Use the same value that AssetRow displays: live price dayChangePct first,
+        // falling back to backup value. Assets with no data sort to the bottom.
+        const da = (livePrices.get(a.id)?.dayChangePct ?? a.dayChangePct) ?? Infinity;
+        const db = (livePrices.get(b.id)?.dayChangePct ?? b.dayChangePct) ?? Infinity;
+        cmp = da - db;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [assets, activeTab, sortKey, sortDir, livePrices]);
+
+  const handleSort = useCallback((key: SortKey) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return key;
+      }
+      // name → A-Z; day% → most negative first (biggest losers/movers at top); others → highest first
+      setSortDir(key === 'name' ? 'asc' : key === 'day' ? 'asc' : 'desc');
+      return key;
+    });
+  }, []);
 
   // Keep ref in sync so gesture callbacks can read the latest list
   useEffect(() => { tabsWithAssetsRef.current = tabsWithAssets; }, [tabsWithAssets]);
@@ -306,7 +338,7 @@ export default function PortfolioScreen() {
             keyExtractor={(item) => String(item.id)}
             renderItem={renderItem}
             ItemSeparatorComponent={renderSeparator}
-            ListHeaderComponent={<AssetColumnHeader />}
+            ListHeaderComponent={<AssetColumnHeader sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
             ListEmptyComponent={
               <EmptyState
                 title="No assets here"

@@ -6,7 +6,8 @@ import { Typography } from '@components/ui/Typography';
 import { useTheme } from '@hooks/useTheme';
 import { formatCompact, formatPercent } from '@utils/formatters';
 import { assetTypeColors } from '@theme/colors';
-import { usePortfolioStore } from '@store/usePortfolioStore';
+import { usePortfolioStore, lookupMFRating } from '@store/usePortfolioStore';
+import { Ionicons } from '@expo/vector-icons';
 
 const NO_QTY_TYPES = new Set([
   'pf', 'nps', 'gratuity', 'pension', 'insurance_policy',
@@ -40,9 +41,12 @@ function ratingBg(rating: number, gainSoft: string, warningSoft: string, lossSof
   return lossSoft;
 }
 
-// Fixed widths for the two right-hand columns — keep them consistent across all rows.
-const COL_INVESTED = 68;
-const COL_VALUE = 72;
+export type SortKey = 'name' | 'invested' | 'value' | 'day';
+export type SortDir = 'asc' | 'desc';
+
+const COL_INVESTED = 62;
+const COL_VALUE    = 68;
+const COL_DAY      = 46;
 
 interface AssetRowProps {
   asset: Asset;
@@ -64,7 +68,6 @@ export function AssetRow({ asset }: AssetRowProps) {
 
   const dotColor = assetTypeColors[asset.assetType] ?? colors.textTertiary;
   const hasDayChange = dayChangePct != null && isFinite(dayChangePct);
-  const dayChangePositive = (dayChangePct ?? 0) >= 0;
 
   const showSymbol =
     asset.symbol &&
@@ -75,25 +78,23 @@ export function AssetRow({ asset }: AssetRowProps) {
   if (showSymbol) subtitleParts.push(asset.symbol!);
   if (showQty) subtitleParts.push(`${formatQty(asset.quantity!, asset.assetType)} units`);
 
-  const pnlColor =
-    hasDayChange
-      ? dayChangePct === 0
-        ? colors.textTertiary
-        : dayChangePositive
-        ? colors.gain
-        : colors.loss
-      : asset.profitLoss >= 0
-      ? colors.gain
-      : colors.loss;
+  // Recompute P&L from the live currentValue so it stays in sync after a price
+  // refresh. asset.profitLoss / profitLossPercent are stale backup values and
+  // would show the wrong % whenever the live price differs from the export price.
+  const overallPnl = currentValue - asset.totalInvested;
+  const overallPct = asset.totalInvested > 0 ? (overallPnl / asset.totalInvested) * 100 : 0;
+  const overallColor = overallPnl >= 0 ? colors.gain : colors.loss;
+  const overallLabel = overallPct !== 0 ? formatPercent(overallPct, 1) : null;
 
-  const pnlLabel = hasDayChange
-    ? `${dayChangePositive ? '+' : ''}${(dayChangePct!).toFixed(2)}%`
-    : asset.profitLossPercent !== 0
-    ? formatPercent(asset.profitLossPercent, 1)
+  const dayColor = hasDayChange
+    ? (dayChangePct === 0 ? colors.textTertiary : (dayChangePct! > 0 ? colors.gain : colors.loss))
+    : colors.textTertiary;
+  const dayLabel = hasDayChange
+    ? `${dayChangePct! > 0 ? '+' : ''}${dayChangePct!.toFixed(2)}%`
     : null;
 
   const isMF = MF_TYPES.has(asset.assetType);
-  const mfRating = isMF ? mfRatingsByAssetId.get(asset.id) : undefined;
+  const mfRating = isMF ? lookupMFRating(asset.id, asset.name, mfRatingsByAssetId) : undefined;
 
   return (
     <Pressable
@@ -111,7 +112,7 @@ export function AssetRow({ asset }: AssetRowProps) {
       {/* Color bar */}
       <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: dotColor, marginTop: 2 }} />
 
-      {/* Name column — wraps freely */}
+      {/* Name column */}
       <View style={{ flex: 1, gap: 2 }}>
         <Typography variant="footnote" weight="600" style={{ lineHeight: 17 }}>
           {asset.name}
@@ -167,24 +168,54 @@ export function AssetRow({ asset }: AssetRowProps) {
         </Typography>
       </View>
 
-      {/* Current value column */}
+      {/* Current value column — overall change % below */}
       <View style={{ width: COL_VALUE, alignItems: 'flex-end', gap: 2 }}>
         <Typography variant="footnote" weight="700">
           {formatCompact(currentValue, asset.currency)}
         </Typography>
-        {pnlLabel && (
-          <Typography variant="micro" weight="600" color={pnlColor}>
-            {pnlLabel}
+        {overallLabel && (
+          <Typography variant="micro" weight="600" color={overallColor}>
+            {overallLabel}
           </Typography>
+        )}
+      </View>
+
+      {/* Daily change % column */}
+      <View style={{ width: COL_DAY, alignItems: 'flex-end', justifyContent: 'center', height: 34 }}>
+        {dayLabel ? (
+          <Typography variant="micro" weight="600" color={dayColor}>
+            {dayLabel}
+          </Typography>
+        ) : (
+          <Typography variant="micro" color={colors.textTertiary}>—</Typography>
         )}
       </View>
     </Pressable>
   );
 }
 
-/** Column header row — render once above the asset list. */
-export function AssetColumnHeader() {
+interface AssetColumnHeaderProps {
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+}
+
+export function AssetColumnHeader({ sortKey, sortDir, onSort }: AssetColumnHeaderProps) {
   const { colors, spacing } = useTheme();
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) {
+      return <Ionicons name="swap-vertical-outline" size={10} color={colors.textTertiary} />;
+    }
+    return (
+      <Ionicons
+        name={sortDir === 'asc' ? 'chevron-up' : 'chevron-down'}
+        size={10}
+        color={colors.accent}
+      />
+    );
+  }
+
   return (
     <View
       style={{
@@ -200,27 +231,65 @@ export function AssetColumnHeader() {
       {/* Spacer matching the 3px color bar */}
       <View style={{ width: 3 }} />
 
-      <Typography variant="micro" color={colors.textTertiary} weight="600" style={{ flex: 1 }}>
-        NAME
-      </Typography>
-
-      <Typography
-        variant="micro"
-        color={colors.textTertiary}
-        weight="600"
-        style={{ width: COL_INVESTED, textAlign: 'right' }}
+      <Pressable
+        onPress={() => onSort('name')}
+        hitSlop={8}
+        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 3 }}
       >
-        INVESTED
-      </Typography>
+        <Typography
+          variant="micro"
+          color={sortKey === 'name' ? colors.accent : colors.textTertiary}
+          weight="600"
+        >
+          NAME
+        </Typography>
+        <SortIcon col="name" />
+      </Pressable>
 
-      <Typography
-        variant="micro"
-        color={colors.textTertiary}
-        weight="600"
-        style={{ width: COL_VALUE, textAlign: 'right' }}
+      <Pressable
+        onPress={() => onSort('invested')}
+        hitSlop={8}
+        style={{ width: COL_INVESTED, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
       >
-        VALUE
-      </Typography>
+        <SortIcon col="invested" />
+        <Typography
+          variant="micro"
+          color={sortKey === 'invested' ? colors.accent : colors.textTertiary}
+          weight="600"
+        >
+          INVESTED
+        </Typography>
+      </Pressable>
+
+      <Pressable
+        onPress={() => onSort('value')}
+        hitSlop={8}
+        style={{ width: COL_VALUE, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
+      >
+        <SortIcon col="value" />
+        <Typography
+          variant="micro"
+          color={sortKey === 'value' ? colors.accent : colors.textTertiary}
+          weight="600"
+        >
+          VALUE
+        </Typography>
+      </Pressable>
+
+      <Pressable
+        onPress={() => onSort('day')}
+        hitSlop={8}
+        style={{ width: COL_DAY, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
+      >
+        <SortIcon col="day" />
+        <Typography
+          variant="micro"
+          color={sortKey === 'day' ? colors.accent : colors.textTertiary}
+          weight="600"
+        >
+          DAY%
+        </Typography>
+      </Pressable>
     </View>
   );
 }

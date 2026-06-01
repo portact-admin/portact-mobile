@@ -1,28 +1,49 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Stack } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, AppState, AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { darkColors, lightColors } from '@theme/colors';
 import { useThemeStore } from '@store/useThemeStore';
+import { useBiometricStore } from '@store/useBiometricStore';
+import { BiometricLockScreen } from '@components/BiometricLockScreen';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const { preference, loadPreference } = useThemeStore();
+  const { enabled, locked, loadPreference: loadBiometric, lock } = useBiometricStore();
   const systemScheme = useColorScheme();
   const isDark = preference === 'system' ? systemScheme === 'dark' : preference === 'dark';
   const colors = isDark ? darkColors : lightColors;
 
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+
   useEffect(() => {
+    // Hide the native splash as soon as the root layout mounts.
+    // Doing it here (not in a child screen) guarantees it always fires,
+    // even if a child screen crashes or hangs before it can call hideAsync.
+    SplashScreen.hideAsync();
     loadPreference();
+    loadBiometric();
   }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appState.current !== 'active' && nextState === 'active' && enabled) {
+        lock();
+      }
+      appState.current = nextState;
+    });
+    return () => sub.remove();
+  }, [enabled, lock]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        {locked && <BiometricLockScreen />}
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <Stack
           screenOptions={{

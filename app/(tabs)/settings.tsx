@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Alert, Pressable } from 'react-native';
+import { ScrollView, View, Alert, Pressable, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as LocalAuthentication from 'expo-local-authentication';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@hooks/useTheme';
 import { usePortfolioStore } from '@store/usePortfolioStore';
 import { useThemeStore, ThemePreference } from '@store/useThemeStore';
+import { useBiometricStore } from '@store/useBiometricStore';
 import { googleDriveService, GoogleDriveError, DriveFile, WEB_CLIENT_ID } from '@services/googleDrive';
 import { storage } from '@services/storage';
 import { Typography } from '@components/ui/Typography';
@@ -31,17 +33,17 @@ function SettingRow({
   onPress?: () => void;
   destructive?: boolean;
 }) {
-  const { colors, spacing, radius } = useTheme();
+  const { colors, spacing } = useTheme();
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
       style={({ pressed }) => ({
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         paddingVertical: spacing.md,
         paddingHorizontal: spacing.md,
+        gap: spacing.sm,
         opacity: pressed ? 0.7 : 1,
       })}
       accessibilityRole={onPress ? 'button' : 'none'}
@@ -49,11 +51,18 @@ function SettingRow({
       <Typography
         variant="callout"
         color={destructive ? colors.loss : colors.textPrimary}
+        style={{ flex: 1 }}
       >
         {label}
       </Typography>
       {value ? (
-        <Typography variant="callout" color={colors.textSecondary}>{value}</Typography>
+        <Typography
+          variant="callout"
+          color={colors.textSecondary}
+          style={{ flexShrink: 1, maxWidth: '58%', textAlign: 'right' }}
+        >
+          {value}
+        </Typography>
       ) : onPress ? (
         <Typography variant="callout" color={colors.textTertiary}>›</Typography>
       ) : null}
@@ -72,6 +81,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { backupMeta, clearData, loadFromString, status } = usePortfolioStore();
   const { preference, setPreference } = useThemeStore();
+
+  const { enabled: biometricEnabled, setEnabled: setBiometricEnabled } = useBiometricStore();
 
   const [driveUser, setDriveUser] = useState<string | null>(null);
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
@@ -140,6 +151,7 @@ export default function SettingsScreen() {
       const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
       if (result.canceled) return;
       const asset = result.assets[0];
+      if (!asset?.uri) throw new Error('No file selected.');
       const content = await FileSystem.readAsStringAsync(asset.uri);
       await loadFromString(content, {
         fileName: asset.name ?? 'backup.json',
@@ -154,6 +166,26 @@ export default function SettingsScreen() {
     } finally {
       setUploadLoading(false);
     }
+  }
+
+  async function handleBiometricToggle(val: boolean) {
+    if (val) {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!hasHardware || !isEnrolled) {
+        Alert.alert(
+          'Not Available',
+          'No biometric authentication is set up on this device. Please enable fingerprint or face recognition in your device settings.',
+        );
+        return;
+      }
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Confirm to enable biometric lock',
+        disableDeviceFallback: false,
+      });
+      if (!result.success) return;
+    }
+    await setBiometricEnabled(val);
   }
 
   async function handleClearData() {
@@ -350,6 +382,38 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+          </View>
+        </Card>
+
+        {/* Security */}
+        <Card style={{ gap: 0, padding: 0 }}>
+          <View style={{ padding: spacing.md }}>
+            <Typography variant="footnote" color={colors.textSecondary} weight="600">SECURITY</Typography>
+          </View>
+          <Divider />
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing.md,
+            gap: spacing.sm,
+          }}>
+            <Ionicons name="finger-print" size={20} color={colors.textSecondary} />
+            <Typography variant="callout" color={colors.textPrimary} style={{ flex: 1 }}>
+              Biometric Lock
+            </Typography>
+            <Switch
+              value={biometricEnabled}
+              onValueChange={handleBiometricToggle}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+          <Divider />
+          <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+            <Typography variant="caption" color={colors.textTertiary}>
+              Require fingerprint or face recognition each time the app is opened.
+            </Typography>
           </View>
         </Card>
 

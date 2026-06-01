@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs, Redirect } from 'expo-router';
-import { useColorScheme, Platform } from 'react-native';
+import { useColorScheme, Platform, ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { darkColors, lightColors } from '@theme/colors';
@@ -9,9 +9,11 @@ import { useThemeStore } from '@store/useThemeStore';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
+// expo-router passes color as ColorValue; Ionicons accepts string — cast is safe
+// since our theme always uses hex strings, never platform colors.
 function tabIcon(focused: boolean, active: IoniconName, inactive: IoniconName) {
-  return ({ color }: { color: string }) => (
-    <Ionicons name={focused ? active : inactive} size={26} color={color} />
+  return ({ color }: { color: string | ColorValue }) => (
+    <Ionicons name={focused ? active : inactive} size={26} color={color as string} />
   );
 }
 

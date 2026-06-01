@@ -10,10 +10,13 @@ export function computePortfolioSummary(
   cryptoCash: number,
 ): PortfolioSummary {
   const activeAssets = assets.filter((a) => a.is_active);
-  const totalValue = activeAssets.reduce((s, a) => s + (a.current_value ?? 0), 0)
-    + bankBalance + dematCash + cryptoCash;
+  const assetsValue = activeAssets.reduce((s, a) => s + (a.current_value ?? 0), 0);
+  // Cash (bank / demat / crypto accounts) is treated as invested = value → 0 gain/loss.
+  // This matches the web app: Dashboard.tsx sets invested = value for all cash entries
+  // so they don't inflate the portfolio P&L figure.
+  const totalValue = assetsValue + bankBalance + dematCash + cryptoCash;
   const totalInvested = activeAssets.reduce((s, a) => s + (a.total_invested ?? 0), 0);
-  const totalGainLoss = totalValue - totalInvested;
+  const totalGainLoss = assetsValue - totalInvested;
   const gainLossPercent = totalInvested > 0
     ? (totalGainLoss / totalInvested) * 100
     : 0;

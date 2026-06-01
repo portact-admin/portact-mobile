@@ -33,8 +33,8 @@ interface PortfolioStore {
   summary: PortfolioSummary | null;
   typeDisplayMap: Record<string, string>;
 
-  // MF ratings keyed by asset id
-  mfRatingsByAssetId: Map<number, RawMFRating>;
+  // MF ratings — indexed by asset id (primary) and fund name (fallback)
+  mfRatingsByAssetId: MFRatingLookup;
 
   // live price overlay (applied on top of backup prices)
   livePrices: Map<number, LivePrice>;
@@ -54,12 +54,32 @@ interface PortfolioStore {
   clearData(): Promise<void>;
 }
 
-function buildMFRatingsMap(backup: BackupFile): Map<number, RawMFRating> {
-  const map = new Map<number, RawMFRating>();
+function normaliseFundName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+export interface MFRatingLookup {
+  byAssetId: Map<number, RawMFRating>;
+  byFundName: Map<string, RawMFRating>;
+}
+
+function buildMFRatingsMap(backup: BackupFile): MFRatingLookup {
+  const byAssetId = new Map<number, RawMFRating>();
+  const byFundName = new Map<string, RawMFRating>();
   for (const r of backup.mf_ratings ?? []) {
-    map.set(r.asset_id, r);
+    byAssetId.set(r.asset_id, r);
+    if (r.fund_name) byFundName.set(normaliseFundName(r.fund_name), r);
   }
-  return map;
+  return { byAssetId, byFundName };
+}
+
+export function lookupMFRating(
+  assetId: number,
+  assetName: string,
+  lookup: MFRatingLookup,
+): RawMFRating | undefined {
+  return lookup.byAssetId.get(assetId)
+    ?? lookup.byFundName.get(normaliseFundName(assetName));
 }
 
 function deriveState(backup: BackupFile): Pick<
@@ -117,7 +137,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   snapshots: [],
   summary: null,
   typeDisplayMap: {},
-  mfRatingsByAssetId: new Map(),
+  mfRatingsByAssetId: { byAssetId: new Map(), byFundName: new Map() },
   livePrices: new Map(),
   lastPriceRefresh: null,
   priceRefreshing: false,
@@ -190,7 +210,10 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     if (priceRefreshing || assets.length === 0) return { refreshed: 0, total };
     set({ priceRefreshing: true });
     try {
-      const updates = await refreshPrices(assets);
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('price refresh timeout')), 30_000),
+      );
+      const updates = await Promise.race([refreshPrices(assets), timeout]);
       if (updates.size > 0 && summary) {
         // Recompute totalValue using live prices so Net Worth reflects the refresh.
         // For each asset: use live price × quantity when available, else keep backup value.
@@ -202,7 +225,8 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
           return sum + val;
         }, 0);
         const liveTotal = liveAssetsTotal + summary.bankBalance + summary.dematCash + summary.cryptoCash;
-        const liveGainLoss = liveTotal - summary.totalInvested;
+        // Cash is value = invested → 0 gain. P&L only from asset investments (matches web app).
+        const liveGainLoss = liveAssetsTotal - summary.totalInvested;
         const liveGainPct = summary.totalInvested > 0
           ? (liveGainLoss / summary.totalInvested) * 100
           : 0;
@@ -247,7 +271,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       snapshots: [],
       summary: null,
       typeDisplayMap: {},
-      mfRatingsByAssetId: new Map(),
+      mfRatingsByAssetId: { byAssetId: new Map(), byFundName: new Map() },
       selectedPortfolioId: null,
     });
   },

@@ -1,15 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Image, StyleSheet, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { usePortfolioStore } from '@store/usePortfolioStore';
 import { googleDriveService, extractUserName, WEB_CLIENT_ID, DRIVE_SCOPES, DriveFile } from '@services/googleDrive';
-import { storage } from '@services/storage';
+import { storage, BackupMeta } from '@services/storage';
 import { Typography } from '@components/ui/Typography';
-import { formatCompact, formatRelativeDate } from '@utils/formatters';
+import { formatRelativeDate } from '@utils/formatters';
 
 const BRAND_BG  = '#0B1120';
 const BRAND_BG2 = '#0F172A';
@@ -49,7 +48,6 @@ async function checkDailySync(): Promise<void> {
         source:        'google_drive' as const,
       };
       await storage.saveUserBackup(file.id, json, meta);
-      // For the currently active profile, also refresh the in-memory store and active backup
       if (file.name === activeFileName) {
         await usePortfolioStore.getState().loadFromString(json, meta);
       }
@@ -59,12 +57,14 @@ async function checkDailySync(): Promise<void> {
   }
 }
 
+let _priceInterval: ReturnType<typeof setInterval> | null = null;
+
 function startPriceRefresh() {
+  if (_priceInterval) return;
   usePortfolioStore.getState().refreshLivePrices();
-  const interval = setInterval(() => {
+  _priceInterval = setInterval(() => {
     usePortfolioStore.getState().refreshLivePrices();
   }, 30 * 60 * 1000);
-  (global as Record<string, unknown>).__priceInterval = interval;
 }
 
 export default function AppSplash() {
@@ -72,28 +72,22 @@ export default function AppSplash() {
   const loadFromStorage = usePortfolioStore((s) => s.loadFromStorage);
   const summary         = usePortfolioStore((s) => s.summary);
 
-  const nextRoute = useRef<'/(tabs)/' | '/onboarding' | null>(null);
+  const nextRoute = useRef<string | null>(null);
 
-  // UI state
   const [ready,          setReady]          = useState(false);
   const [hasData,        setHasData]        = useState(false);
   const [checkingDrive,  setCheckingDrive]  = useState(false);
   const [profiles,       setProfiles]       = useState<DriveProfile[]>([]);
-  const [loadingProfile, setLoadingProfile] = useState<string | null>(null); // file id being loaded
+  const [loadingProfile, setLoadingProfile] = useState<string | null>(null);
 
   useEffect(() => {
     GoogleSignin.configure({ webClientId: WEB_CLIENT_ID, scopes: DRIVE_SCOPES });
 
     (async () => {
-      // ── Step 1: load local storage ────────────────────────────────────
       await loadFromStorage();
       const localLoaded = usePortfolioStore.getState().status === 'loaded';
       if (localLoaded) setHasData(true);
 
-      // Hide the system splash immediately — never block on Drive
-      SplashScreen.hideAsync();
-
-      // ── Step 2: probe Drive with a hard timeout ────────────────────────
       setCheckingDrive(true);
       try {
         const files = await Promise.race([
@@ -107,12 +101,9 @@ export default function AppSplash() {
         ]);
 
         if (files.length >= 2) {
-          // Multiple backups → show profile picker
           setProfiles(files.map((f) => ({ file: f, userName: extractUserName(f.name) })));
           nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
-
         } else if (files.length === 1 && !localLoaded) {
-          // Single backup, no local data → auto-load
           const content = await googleDriveService.downloadFile(files[0].id);
           await usePortfolioStore.getState().loadFromString(content, {
             fileName:      files[0].name,
@@ -123,12 +114,10 @@ export default function AppSplash() {
           });
           nextRoute.current = '/(tabs)/';
           setHasData(true);
-
         } else {
           nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
         }
       } catch {
-        // Not signed in, Drive unavailable, or timed out — proceed with local data
         nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
       } finally {
         setCheckingDrive(false);
@@ -137,24 +126,37 @@ export default function AppSplash() {
     })();
   }, []);
 
-  // Called when the user taps a profile card
+  // ── Auto-navigate as soon as loading is done ───────────────────────────────
+  // Runs when `ready` flips to true. At that point React has already committed
+  // the final `profiles` value (React 18 batching), so if profiles.length > 0
+  // the picker renders and we skip auto-navigation until the user picks one.
+  useEffect(() => {
+    if (!ready || profiles.length > 0) return;
+    const route = nextRoute.current ?? '/onboarding';
+    if (route === '/(tabs)/') {
+      checkDailySync();
+      startPriceRefresh();
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.replace(route as any);
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleProfileSelect(profile: DriveProfile) {
     if (loadingProfile) return;
     setLoadingProfile(profile.file.id);
     try {
       let json: string;
-      let meta = {
+      let meta: BackupMeta = {
         fileName:      profile.file.name,
         exportVersion: '',
         exportedAt:    profile.file.modifiedTime,
         loadedAt:      new Date().toISOString(),
-        source:        'google_drive' as const,
+        source:        'google_drive',
       };
 
       const cached = await storage.loadUserBackup(profile.file.id);
       if (cached) {
         json = cached.json;
-        // keep exportedAt from cache but refresh loadedAt
         meta = { ...cached.meta, loadedAt: new Date().toISOString() };
       } else {
         json = await googleDriveService.downloadFile(profile.file.id);
@@ -163,11 +165,10 @@ export default function AppSplash() {
 
       await usePortfolioStore.getState().loadFromString(json, meta);
       setProfiles([]);
-      setHasData(true);
-      nextRoute.current = '/(tabs)/';
       checkDailySync();
       startPriceRefresh();
-      router.replace('/(tabs)/');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.replace('/(tabs)/' as any);
     } catch (err) {
       const { BackupParseError } = await import('@services/backupParser');
       const msg = err instanceof BackupParseError
@@ -179,20 +180,9 @@ export default function AppSplash() {
     }
   }
 
-  // Tap-anywhere handler (only active when NOT showing the profile picker)
-  function handleTap() {
-    if (!ready || profiles.length > 0) return;
-    if (nextRoute.current === '/(tabs)/') {
-      checkDailySync();
-      startPriceRefresh();
-    }
-    router.replace(nextRoute.current ?? '/onboarding');
-  }
-
-  const netWorth = summary?.totalValue;
   const showPicker = ready && profiles.length > 0;
 
-  // ── Profile picker ────────────────────────────────────────────────────────
+  // ── Profile picker ─────────────────────────────────────────────────────────
   if (showPicker) {
     return (
       <View style={{ flex: 1, backgroundColor: BRAND_BG }}>
@@ -215,7 +205,6 @@ export default function AppSplash() {
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24, gap: 16 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
           <View style={{ alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <Image
               source={require('../assets/logo.png')}
@@ -230,7 +219,6 @@ export default function AppSplash() {
             </Typography>
           </View>
 
-          {/* Profile cards */}
           {profiles.map((profile) => {
             const isLoading = loadingProfile === profile.file.id;
             return (
@@ -253,7 +241,6 @@ export default function AppSplash() {
                   gap: 14,
                 })}
               >
-                {/* Avatar */}
                 <View style={{
                   width: 48, height: 48, borderRadius: 24,
                   backgroundColor: 'rgba(77,148,255,0.2)',
@@ -264,7 +251,6 @@ export default function AppSplash() {
                   </Typography>
                 </View>
 
-                {/* Name + date */}
                 <View style={{ flex: 1 }}>
                   <Typography variant="headline" weight="700" color="#FFFFFF">
                     {profile.userName}
@@ -274,7 +260,6 @@ export default function AppSplash() {
                   </Typography>
                 </View>
 
-                {/* Right icon */}
                 {isLoading
                   ? <ActivityIndicator color="#4D94FF" size="small" />
                   : <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
@@ -283,7 +268,6 @@ export default function AppSplash() {
             );
           })}
 
-          {/* Manual import fallback */}
           <Pressable
             onPress={() => router.replace('/onboarding')}
             disabled={!!loadingProfile}
@@ -298,9 +282,9 @@ export default function AppSplash() {
     );
   }
 
-  // ── Normal splash ─────────────────────────────────────────────────────────
+  // ── Loading splash ─────────────────────────────────────────────────────────
   return (
-    <Pressable style={{ flex: 1, backgroundColor: BRAND_BG }} onPress={handleTap}>
+    <View style={{ flex: 1, backgroundColor: BRAND_BG }}>
       <LinearGradient
         colors={[BRAND_BG, BRAND_BG2]}
         style={StyleSheet.absoluteFill}
@@ -316,7 +300,6 @@ export default function AppSplash() {
         pointerEvents="none"
       />
 
-      {/* Hero */}
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 24 }}>
         <Image
           source={require('../assets/logo.png')}
@@ -332,25 +315,6 @@ export default function AppSplash() {
           <Typography variant="callout" weight="700" color="#2ED882">RETIRE</Typography>
         </View>
 
-        {/* Checking Drive spinner */}
-        {checkingDrive && (
-          <View style={{ alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <ActivityIndicator color="rgba(77,148,255,0.7)" />
-            <Typography variant="caption" color="rgba(255,255,255,0.3)">
-              Checking Google Drive…
-            </Typography>
-          </View>
-        )}
-
-        {/* Net worth preview */}
-        {hasData && netWorth != null && (
-          <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Typography variant="caption" color="rgba(255,255,255,0.4)" weight="600">NET WORTH</Typography>
-            <Typography variant="hero" weight="800" color="#FFFFFF">{formatCompact(netWorth)}</Typography>
-          </View>
-        )}
-
-        {/* Module cards */}
         {hasData && (
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, width: '100%' }}>
             {MODULES.map((m) => (
@@ -375,15 +339,13 @@ export default function AppSplash() {
         )}
       </View>
 
-      {/* Footer */}
+      {/* Footer: spinner while Drive loads, nothing once ready */}
       <View style={{ paddingBottom: 48, alignItems: 'center' }}>
-        <Typography
-          variant="caption"
-          color={ready && !checkingDrive ? 'rgba(255,255,255,0.35)' : 'transparent'}
-        >
-          Tap anywhere to continue
-        </Typography>
+        {checkingDrive
+          ? <ActivityIndicator color="rgba(77,148,255,0.5)" />
+          : null
+        }
       </View>
-    </Pressable>
+    </View>
   );
 }
