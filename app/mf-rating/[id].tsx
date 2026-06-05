@@ -3,7 +3,7 @@ import { ScrollView, View, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@hooks/useTheme';
-import { usePortfolioStore } from '@store/usePortfolioStore';
+import { usePortfolioStore, lookupMFRating } from '@store/usePortfolioStore';
 import { Typography } from '@components/ui/Typography';
 import { Card } from '@components/ui/Card';
 import { Divider } from '@components/ui/Divider';
@@ -160,7 +160,7 @@ interface PeerEntry {
   [key: string]: unknown;
 }
 
-function PeerRow({ peer, isFirst }: { peer: PeerEntry; isFirst: boolean }) {
+function PeerRow({ peer }: { peer: PeerEntry }) {
   const { colors, spacing, radius } = useTheme();
   const rank = peer.composite_rank ?? 0;
   const isTopRank = rank === 1;
@@ -226,7 +226,9 @@ export default function MFRatingScreen() {
   const { assets, mfRatingsByAssetId } = usePortfolioStore();
 
   const asset = useMemo(() => assets.find((a) => String(a.id) === id), [assets, id]);
-  const rating: RawMFRating | undefined = mfRatingsByAssetId.get(Number(id));
+  const rating: RawMFRating | undefined = asset
+    ? lookupMFRating(asset.id, asset.name, mfRatingsByAssetId)
+    : undefined;
 
   if (!asset || !rating) {
     return (
@@ -310,7 +312,11 @@ export default function MFRatingScreen() {
         {/* Hero card — score + fund identity */}
         <Card>
           <View style={{ alignItems: 'center', gap: spacing.md }}>
-            <ScoreCircle rating={rating.rating!} />
+            {rating.rating != null ? (
+              <ScoreCircle rating={rating.rating} />
+            ) : (
+              <Typography variant="callout" color={colors.textSecondary}>No overall rating available</Typography>
+            )}
             <View style={{ alignItems: 'center', gap: 4 }}>
               <Typography variant="headline" weight="700" align="center">
                 {rating.fund_name ?? asset.name}
@@ -463,7 +469,7 @@ export default function MFRatingScreen() {
               {peers.map((peer, i) => (
                 <React.Fragment key={i}>
                   {i > 0 && <Divider />}
-                  <PeerRow peer={peer} isFirst={i === 0} />
+                  <PeerRow peer={peer} />
                 </React.Fragment>
               ))}
             </Card>

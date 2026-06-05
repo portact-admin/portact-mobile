@@ -17,7 +17,6 @@ export interface GoogleUser {
 }
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 const BACKUP_MIME = 'application/json';
 const BACKUP_NAME_PREFIX = 'portact_backup';
 
@@ -40,7 +39,7 @@ export class GoogleDriveError extends Error {
 function configureGoogleSignIn(webClientId: string): void {
   GoogleSignin.configure({
     webClientId,
-    scopes: SCOPES,
+    scopes: DRIVE_SCOPES,
   });
 }
 
@@ -90,7 +89,9 @@ export const googleDriveService = {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const result = await GoogleSignin.signIn();
-      return result as unknown as GoogleUser;
+      // v16+ wraps the response in { type, data } — extract the actual user info
+      const data = (result as unknown as { type: string; data: unknown }).data ?? result;
+      return data as unknown as GoogleUser;
     } catch (err: unknown) {
       const e = err as { code?: string };
       if (e.code === statusCodes.SIGN_IN_CANCELLED) {

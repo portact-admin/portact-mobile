@@ -254,13 +254,22 @@ async function fetchRssFeed(source: { name: string; url: string }): Promise<News
   }
 }
 
+const MAX_NEWS_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export async function fetchFinancialNews(): Promise<NewsItem[]> {
   const batches = await Promise.all(NEWS_SOURCES.map(fetchRssFeed));
-  const all = batches.flat();
+  const now = Date.now();
+
+  // Drop articles older than 24 hours — catches stale RSS feeds like LiveMint.
+  const fresh = batches.flat().filter((item) => {
+    if (!item.pubDate) return true; // no date → keep, let it sort to bottom
+    const age = now - new Date(item.pubDate).getTime();
+    return isFinite(age) && age <= MAX_NEWS_AGE_MS;
+  });
 
   // Deduplicate by normalised title, sort newest-first, keep top 15.
   const seen = new Set<string>();
-  const unique = all.filter((item) => {
+  const unique = fresh.filter((item) => {
     const key = item.title.toLowerCase().replace(/\s+/g, ' ').slice(0, 60);
     if (seen.has(key)) return false;
     seen.add(key);

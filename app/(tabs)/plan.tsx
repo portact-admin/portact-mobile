@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ScrollView, View, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { useTheme } from '@hooks/useTheme';
 import { usePortfolioStore } from '@store/usePortfolioStore';
 import { RawFPPlan, RawFPActionItem } from '@models/backup';
@@ -15,25 +15,25 @@ import { useRouter } from 'expo-router';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+interface HealthZone { min: number; max: number; label: string; color: string }
+
+const HEALTH_ZONES: HealthZone[] = [
+  { min: 0,  max: 55,  label: 'Grade D', color: palette.red500 },
+  { min: 55, max: 70,  label: 'Grade C', color: palette.amber500 },
+  { min: 70, max: 85,  label: 'Grade B', color: palette.blue500 },
+  { min: 85, max: 100, label: 'Grade A', color: palette.green500 },
+];
+
+const HEALTH_TICKS = [
+  { v: 27.5, lbl: 'D', color: palette.red500 },
+  { v: 62.5, lbl: 'C', color: palette.amber500 },
+  { v: 77.5, lbl: 'B', color: palette.blue500 },
+  { v: 92.5, lbl: 'A', color: palette.green500 },
+];
+
 function scoreGrade(score: number): { grade: string; color: string } {
-  if (score >= 70) return { grade: 'A', color: palette.green500 };
-  if (score >= 50) return { grade: 'B', color: palette.blue500 };
-  if (score >= 30) return { grade: 'C', color: palette.amber500 };
-  return { grade: 'D', color: palette.red500 };
-}
-
-/** Polar to cartesian for SVG arc */
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-/** Semicircle arc path for the gauge (–180° to 0°, left to right) */
-function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  const s = polarToCartesian(cx, cy, r, startDeg);
-  const e = polarToCartesian(cx, cy, r, endDeg);
-  const large = endDeg - startDeg > 180 ? 1 : 0;
-  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+  const z = HEALTH_ZONES.find((hz) => score >= hz.min && score <= hz.max) ?? HEALTH_ZONES[HEALTH_ZONES.length - 1];
+  return { grade: z.label.replace('Grade ', ''), color: z.color };
 }
 
 const ACTION_CATEGORIES: Record<string, { label: string; color: string; icon: string }> = {
@@ -56,61 +56,84 @@ const GOAL_STATUS_COLORS: Record<string, string> = {
 // ── sub-components ────────────────────────────────────────────────────────────
 
 function HealthGauge({ score }: { score: number }) {
-  const SIZE = 140;
-  const cx = SIZE / 2;
-  const cy = SIZE / 2 + 10;
-  const R = 50;
-  const strokeW = 10;
+  const { isDark } = useTheme();
+  const [W, setW] = useState(300);
+  const clamped = Math.max(0, Math.min(100, score));
+  const zone = HEALTH_ZONES.find((z) => clamped >= z.min && clamped <= z.max) ?? HEALTH_ZONES[HEALTH_ZONES.length - 1];
 
-  const clampedScore = Math.min(100, Math.max(0, score));
-  const startDeg = 180;
-  const endDeg = 180 + (clampedScore / 100) * 180;
-  const { grade, color } = scoreGrade(clampedScore);
+  const H  = W * 0.52;
+  const cx = W / 2;
+  const cy = H - 8;
+  const R  = W * 0.36;
+  const r  = R * 0.60;
+
+  function segPath(vStart: number, vEnd: number): string {
+    const a1 = (1 - vStart / 100) * Math.PI;
+    const a2 = (1 - vEnd   / 100) * Math.PI;
+    const lg = 0; // semicircle segments never exceed 180°
+    const x1 = cx + R * Math.cos(a1), y1 = cy - R * Math.sin(a1);
+    const x2 = cx + R * Math.cos(a2), y2 = cy - R * Math.sin(a2);
+    const xi1 = cx + r * Math.cos(a1), yi1 = cy - r * Math.sin(a1);
+    const xi2 = cx + r * Math.cos(a2), yi2 = cy - r * Math.sin(a2);
+    return `M ${x1} ${y1} A ${R} ${R} 0 ${lg} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${r} ${r} 0 ${lg} 0 ${xi1} ${yi1} Z`;
+  }
+
+  const nA   = (1 - clamped / 100) * Math.PI;
+  const nR   = r - 4;
+  const tipX = cx + nR * Math.cos(nA), tipY = cy - nR * Math.sin(nA);
+  const perp = nA + Math.PI / 2;
+  const bh   = 4.5;
+  const n1x  = cx + bh * Math.cos(perp), n1y = cy - bh * Math.sin(perp);
+  const n2x  = cx - bh * Math.cos(perp), n2y = cy + bh * Math.sin(perp);
+
+  const tickItems = HEALTH_TICKS.map((t) => {
+    const a = (1 - t.v / 100) * Math.PI;
+    const lr = R + 11;
+    const tx = cx + lr * Math.cos(a);
+    const ty = cy - lr * Math.sin(a);
+    const anchor: 'start' | 'middle' | 'end' = tx < cx - 15 ? 'end' : tx > cx + 15 ? 'start' : 'middle';
+    return { ...t, tx, ty: ty + 3, anchor };
+  });
+
+  const hubColor = zone.color;
+  const bgColor  = isDark ? '#333' : '#e0e0e0';
 
   return (
-    <Svg width={SIZE} height={SIZE / 2 + 20}>
-      {/* track */}
-      <Path
-        d={arcPath(cx, cy, R, 180, 360)}
-        stroke={palette.neutral200}
-        strokeWidth={strokeW}
-        fill="none"
-        strokeLinecap="round"
-      />
-      {/* fill */}
-      {clampedScore > 0 && (
-        <Path
-          d={arcPath(cx, cy, R, startDeg, endDeg)}
-          stroke={color}
-          strokeWidth={strokeW}
-          fill="none"
-          strokeLinecap="round"
-        />
-      )}
-      {/* score label */}
-      <SvgText
-        x={cx}
-        y={cy - 4}
-        textAnchor="middle"
-        fontSize={26}
-        fontWeight="800"
-        fill={color}
-      >
-        {Math.round(clampedScore)}
-      </SvgText>
-      {/* grade label */}
-      <SvgText
-        x={cx}
-        y={cy + 16}
-        textAnchor="middle"
-        fontSize={13}
-        fontWeight="600"
-        fill={color}
-        letterSpacing={2}
-      >
-        GRADE {grade}
-      </SvgText>
-    </Svg>
+    <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ width: '100%' }}>
+      <Svg width={W} height={H + 10}>
+        <Path d={segPath(0, 100)} fill={bgColor} opacity={0.35} />
+        {HEALTH_ZONES.map((z) => (
+          <Path key={z.label} d={segPath(z.min, z.max)} fill={z.color} />
+        ))}
+        {HEALTH_ZONES.slice(0, -1).map((z) => {
+          const a = (1 - z.max / 100) * Math.PI;
+          return (
+            <Path
+              key={`sep-${z.max}`}
+              d={`M ${cx + r * Math.cos(a)} ${cy - r * Math.sin(a)} L ${cx + R * Math.cos(a)} ${cy - R * Math.sin(a)}`}
+              stroke={isDark ? '#111' : '#fff'}
+              strokeWidth={1.5}
+            />
+          );
+        })}
+        {tickItems.map((t) => (
+          <SvgText key={t.lbl} x={t.tx} y={t.ty} fontSize={W * 0.035} fill={t.color} textAnchor={t.anchor} fontWeight="700">
+            {t.lbl}
+          </SvgText>
+        ))}
+        <Path d={`M ${tipX} ${tipY} L ${n1x} ${n1y} L ${n2x} ${n2y} Z`} fill={hubColor} />
+        <Circle cx={cx} cy={cy} r={8} fill={hubColor} />
+        <Circle cx={cx} cy={cy} r={4} fill={isDark ? '#1a1a1a' : '#fff'} />
+      </Svg>
+      <View style={{ alignItems: 'center', marginTop: -8 }}>
+        <Typography variant="title1" weight="800" style={{ color: hubColor, fontSize: 38, lineHeight: 42 }}>
+          {clamped.toFixed(1)}
+        </Typography>
+        <Typography variant="callout" weight="700" style={{ color: hubColor, letterSpacing: 1 }}>
+          {zone.label.toUpperCase()}
+        </Typography>
+      </View>
+    </View>
   );
 }
 
@@ -161,13 +184,15 @@ function ProgressBar({ progress, color }: ProgressBarProps) {
 
 function GoalCard({ goal }: { goal: Record<string, unknown> }) {
   const { colors, spacing, radius } = useTheme();
-  const name = (goal.name as string) ?? 'Goal';
+  const name = ((goal.goal_name as string | undefined) ?? (goal.name as string | undefined)) ?? 'Goal';
   const goalType = (goal.goal_type as string | null) ?? null;
   const status = (goal.status as string | null) ?? null;
   const targetAmount = (goal.target_amount as number) ?? 0;
   const currentSavings = (goal.current_savings as number) ?? 0;
   const targetDate = (goal.target_date as string | null) ?? null;
-  const monthlyRequired = (goal.monthly_required as number | null) ?? null;
+  const monthlyRequired =
+    ((goal.monthly_sip_required as number | null | undefined) ??
+     (goal.monthly_required as number | null | undefined)) ?? null;
 
   const progress = targetAmount > 0 ? currentSavings / targetAmount : 0;
   const statusColor = status ? (GOAL_STATUS_COLORS[status] ?? colors.textSecondary) : colors.textSecondary;
@@ -217,10 +242,78 @@ function GoalCard({ goal }: { goal: Record<string, unknown> }) {
   );
 }
 
-function ActionItemCard({ item }: { item: RawFPActionItem }) {
+interface RebalancingStep {
+  step: number;
+  action: string;
+  instrument: string;
+  amount_inr?: number;
+  mode?: string;
+  asset_class?: string;
+  rationale?: string;
+}
+
+function stepColor(action: string, gain: string, warning: string, accent: string): string {
+  if (action === 'sell') return '#EF4444';
+  if (action === 'buy' || action === 'sip') return gain;
+  return accent;
+}
+
+function ExecutionSteps({ steps }: { steps: RebalancingStep[] }) {
+  const { colors, spacing, radius } = useTheme();
+  return (
+    <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
+      <Typography variant="micro" color={colors.textSecondary} weight="700">EXECUTION STEPS</Typography>
+      {steps.map((s, i) => {
+        const sc = stepColor(s.action, colors.gain, colors.warning, colors.accent);
+        return (
+          <View
+            key={i}
+            style={{
+              backgroundColor: `${sc}0D`,
+              borderRadius: radius.sm,
+              borderWidth: 1,
+              borderColor: `${sc}30`,
+              padding: spacing.xs,
+              gap: 2,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+              <View style={{ backgroundColor: `${sc}22`, borderRadius: radius.xs, paddingHorizontal: 5, paddingVertical: 2 }}>
+                <Typography variant="micro" color={sc} weight="800">
+                  {s.step}. {s.action.toUpperCase()}
+                </Typography>
+              </View>
+              {s.asset_class && (
+                <View style={{ backgroundColor: colors.surfaceSecondary, borderRadius: radius.xs, paddingHorizontal: 5, paddingVertical: 2 }}>
+                  <Typography variant="micro" color={colors.textSecondary} weight="600">{s.asset_class}</Typography>
+                </View>
+              )}
+            </View>
+            <Typography variant="caption" weight="600">{s.instrument}</Typography>
+            {(s.amount_inr != null || s.mode) && (
+              <Typography variant="micro" color={colors.textSecondary}>
+                {s.amount_inr != null ? formatCompact(s.amount_inr) : ''}
+                {s.amount_inr != null && s.mode ? ' · ' : ''}
+                {s.mode ?? ''}
+              </Typography>
+            )}
+            {s.rationale ? (
+              <Typography variant="micro" color={colors.textSecondary} style={{ lineHeight: 16 }}>
+                {s.rationale}
+              </Typography>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ActionItemCard({ item, rebalancingSteps }: { item: RawFPActionItem; rebalancingSteps?: RebalancingStep[] }) {
   const { colors, spacing, radius } = useTheme();
   const [expanded, setExpanded] = useState(false);
   const meta = ACTION_CATEGORIES[item.category] ?? { label: item.category, color: colors.textSecondary, icon: '•' };
+  const hasSteps = (rebalancingSteps?.length ?? 0) > 0;
 
   return (
     <Pressable onPress={() => setExpanded((v) => !v)}>
@@ -264,6 +357,10 @@ function ActionItemCard({ item }: { item: RawFPActionItem }) {
           </Typography>
         ) : null}
 
+        {expanded && hasSteps && (
+          <ExecutionSteps steps={rebalancingSteps!} />
+        )}
+
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
             <View style={{
@@ -279,6 +376,13 @@ function ActionItemCard({ item }: { item: RawFPActionItem }) {
                 <Typography variant="micro" color={palette.red500} weight="700">HIGH</Typography>
               </View>
             )}
+            {hasSteps && !expanded && (
+              <View style={{ backgroundColor: `${meta.color}18`, borderRadius: radius.xs, paddingHorizontal: 5, paddingVertical: 2 }}>
+                <Typography variant="micro" color={meta.color} weight="600">
+                  {rebalancingSteps!.length} step{rebalancingSteps!.length !== 1 ? 's' : ''}
+                </Typography>
+              </View>
+            )}
           </View>
           {item.target_date && (
             <Typography variant="micro" color={colors.textTertiary}>
@@ -291,8 +395,25 @@ function ActionItemCard({ item }: { item: RawFPActionItem }) {
   );
 }
 
-function ActionItemsSection({ items }: { items: RawFPActionItem[] }) {
+function ActionItemsSection({
+  items,
+  planJsonItems,
+}: {
+  items: RawFPActionItem[];
+  planJsonItems?: Array<Record<string, unknown>>;
+}) {
   const { colors, spacing } = useTheme();
+
+  // Build action_key → rebalancing_steps from plan_json.action_items
+  const stepsMap = useMemo(() => {
+    const m: Record<string, RebalancingStep[]> = {};
+    for (const a of planJsonItems ?? []) {
+      const key = a.action_key as string | undefined;
+      if (key) m[key] = (a.rebalancing_steps as RebalancingStep[] | undefined) ?? [];
+    }
+    return m;
+  }, [planJsonItems]);
+
   const byCategory = useMemo(() => {
     const map: Record<string, RawFPActionItem[]> = {};
     for (const item of items) {
@@ -326,7 +447,11 @@ function ActionItemsSection({ items }: { items: RawFPActionItem[] }) {
                 <Typography variant="micro" color={colors.textTertiary}>({catDone}/{catItems.length})</Typography>
               </View>
               {catItems.map((item) => (
-                <ActionItemCard key={item.id} item={item} />
+                <ActionItemCard
+                  key={item.id}
+                  item={item}
+                  rebalancingSteps={stepsMap[item.action_key]}
+                />
               ))}
             </View>
           );
@@ -353,6 +478,15 @@ function AllocationRow({ label, current, recommended, color }: {
   );
 }
 
+const ALLOCATION_ASSET_CLASSES: Array<{ key: string; label: string; color: string }> = [
+  { key: 'equity',      label: 'Equity',      color: palette.blue500 },
+  { key: 'debt',        label: 'Debt',        color: palette.green500 },
+  { key: 'gold',        label: 'Gold',        color: palette.amber500 },
+  { key: 'real_estate', label: 'Real Estate', color: '#E76F51' },
+  { key: 'crypto',      label: 'Crypto',      color: palette.amber400 },
+  { key: 'cash',        label: 'Cash',        color: palette.neutral400 },
+];
+
 // ── main screen ───────────────────────────────────────────────────────────────
 
 export default function PlanScreen() {
@@ -364,7 +498,7 @@ export default function PlanScreen() {
   const plans: RawFPPlan[] = useMemo(() => {
     const raw = backup?.fp_plans ?? [];
     return raw
-      .filter((p) => p.accepted_at != null && p.is_active)
+      .filter((p) => p.accepted_at != null)
       .sort((a, b) => new Date(b.accepted_at!).getTime() - new Date(a.accepted_at!).getTime());
   }, [backup]);
 
@@ -398,7 +532,7 @@ export default function PlanScreen() {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg }}>
           <EmptyState
             title="No Plan Yet"
-            subtitle="Your PortAct backup does not include any accepted financial plan. Generate and accept a plan in the PortAct app to see it here."
+            subtitle="Generate and accept a financial plan in the PortAct app, then re-import your backup."
           />
         </View>
       </SafeAreaView>
@@ -406,7 +540,12 @@ export default function PlanScreen() {
   }
 
   const pj = activePlan!.plan_json as Record<string, unknown>;
-  const healthScore = (pj.health_score as number | null) ?? activePlan!.health_score ?? 0;
+  const hsObj = pj.health_score as Record<string, unknown> | number | null | undefined;
+  const healthScore: number = typeof hsObj === 'number'
+    ? hsObj
+    : typeof hsObj === 'object' && hsObj != null
+    ? ((hsObj.overall ?? hsObj.score ?? hsObj.value) as number | null | undefined) ?? activePlan!.health_score ?? 0
+    : activePlan!.health_score ?? 0;
   const executiveSummary = pj.executive_summary as string | undefined;
   const assetAlloc = pj.asset_allocation as Record<string, unknown> | undefined;
   const goalPlans: Array<Record<string, unknown>> = (pj.goal_plans as Array<Record<string, unknown>>) ?? [];
@@ -414,15 +553,6 @@ export default function PlanScreen() {
   const insGaps = pj.insurance_gaps as Record<string, unknown> | undefined;
   const expReduction: Array<Record<string, unknown>> = (pj.expense_reduction as Array<Record<string, unknown>>) ?? [];
   const rip = pj.retirement_income_plan as Record<string, unknown> | undefined;
-
-  const allocationAssetClasses: Array<{ key: string; label: string; color: string }> = [
-    { key: 'equity', label: 'Equity', color: palette.blue500 },
-    { key: 'debt', label: 'Debt', color: palette.green500 },
-    { key: 'gold', label: 'Gold', color: palette.amber500 },
-    { key: 'real_estate', label: 'Real Estate', color: '#E76F51' },
-    { key: 'crypto', label: 'Crypto', color: palette.amber400 },
-    { key: 'cash', label: 'Cash', color: palette.neutral400 },
-  ];
 
   const { grade, color: gradeColor } = scoreGrade(healthScore);
 
@@ -462,7 +592,7 @@ export default function PlanScreen() {
                       {p.name ?? `v${p.version}`}
                     </Typography>
                     <Typography variant="micro" color={isActive ? '#ffffffaa' : colors.textSecondary}>
-                      {formatDate(p.accepted_at!, 'DD MMM YYYY')}
+                      {formatDate(p.accepted_at ?? p.created_at, 'DD MMM YYYY')}
                     </Typography>
                   </Pressable>
                 );
@@ -495,8 +625,10 @@ export default function PlanScreen() {
 
           <View style={{ flexDirection: 'row', gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
             <View>
-              <Typography variant="micro" color={colors.textSecondary} weight="600">ACCEPTED</Typography>
-              <Typography variant="caption" weight="600">{formatDate(activePlan!.accepted_at!)}</Typography>
+              <Typography variant="micro" color={colors.textSecondary} weight="600">
+                {activePlan!.accepted_at ? 'ACCEPTED' : 'GENERATED'}
+              </Typography>
+              <Typography variant="caption" weight="600">{formatDate(activePlan!.accepted_at ?? activePlan!.created_at)}</Typography>
             </View>
             <View>
               <Typography variant="micro" color={colors.textSecondary} weight="600">VERSION</Typography>
@@ -515,10 +647,10 @@ export default function PlanScreen() {
           <HealthGauge score={healthScore} />
           <View style={{ flexDirection: 'row', gap: spacing.lg }}>
             {[
-              { range: '70–100', grade: 'A', color: palette.green500 },
-              { range: '50–69', grade: 'B', color: palette.blue500 },
-              { range: '30–49', grade: 'C', color: palette.amber500 },
-              { range: '0–29',  grade: 'D', color: palette.red500 },
+              { range: '85–100', grade: 'A', color: palette.green500 },
+              { range: '70–84',  grade: 'B', color: palette.blue500 },
+              { range: '55–69',  grade: 'C', color: palette.amber500 },
+              { range: '0–54',   grade: 'D', color: palette.red500 },
             ].map((g) => (
               <View key={g.grade} style={{ alignItems: 'center', gap: 2 }}>
                 <Typography variant="caption" color={g.color} weight="700">{g.grade}</Typography>
@@ -557,22 +689,30 @@ export default function PlanScreen() {
               <Typography variant="micro" color={colors.textTertiary} style={{ width: 48, textAlign: 'right' }}>CURRENT</Typography>
               <Typography variant="micro" color={colors.textTertiary} style={{ width: 48, textAlign: 'right' }}>TARGET</Typography>
             </View>
-            {allocationAssetClasses.map(({ key, label, color }) => {
-              const curr = (assetAlloc as Record<string, unknown>);
-              const current = (curr[`current_${key}_pct`] ?? curr[`${key}_pct`]) as number | undefined;
-              const recommended = (curr[`recommended_${key}_pct`] ?? curr[`target_${key}_pct`]) as number | undefined;
+            {ALLOCATION_ASSET_CLASSES.map(({ key, label, color }) => {
+              const aa = assetAlloc as Record<string, unknown>;
+              // Support both nested {current:{equity_pct:N}} and flat {current_equity_pct:N} formats
+              const current =
+                (aa.current as Record<string, number> | undefined)?.[`${key}_pct`] ??
+                (aa[`current_${key}_pct`] as number | undefined);
+              const recommended =
+                (aa.recommended as Record<string, number> | undefined)?.[`${key}_pct`] ??
+                (aa[`recommended_${key}_pct`] as number | undefined) ??
+                (aa[`target_${key}_pct`] as number | undefined);
               if (current == null && recommended == null) return null;
               return (
                 <AllocationRow key={key} label={label} current={current} recommended={recommended} color={color} />
               );
             })}
-            {(assetAlloc as Record<string, unknown>).rebalancing_summary ? (
-              <View style={{ backgroundColor: colors.accentSoft, borderRadius: radius.sm, padding: spacing.sm, marginTop: spacing.xs }}>
-                <Typography variant="caption" color={colors.accent}>
-                  {(assetAlloc as Record<string, unknown>).rebalancing_summary as string}
-                </Typography>
-              </View>
-            ) : null}
+            {(() => {
+              const aa = assetAlloc as Record<string, unknown>;
+              const note = (aa.rationale ?? aa.rebalancing_summary) as string | undefined;
+              return note ? (
+                <View style={{ backgroundColor: colors.accentSoft, borderRadius: radius.sm, padding: spacing.sm, marginTop: spacing.xs }}>
+                  <Typography variant="caption" color={colors.accent}>{note}</Typography>
+                </View>
+              ) : null;
+            })()}
           </Card>
         )}
 
@@ -621,12 +761,42 @@ export default function PlanScreen() {
         {taxOpt && (
           <Card style={{ gap: spacing.sm }}>
             <SectionHeader title="Tax Optimization" />
-            {(taxOpt.recommendations as string[] | undefined)?.map((r, i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <Typography variant="caption" color={palette.green500} weight="700">✓</Typography>
-                <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{r}</Typography>
-              </View>
-            ))}
+            {(taxOpt.recommendations as Array<unknown> | undefined)?.map((r, i) => {
+              if (typeof r === 'string') {
+                // Old format: plain string recommendation
+                return (
+                  <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <Typography variant="caption" color={palette.green500} weight="700">✓</Typography>
+                    <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{r}</Typography>
+                  </View>
+                );
+              }
+              // New format: object with instrument / tax_saving / recommended_amount / notes
+              const rec = r as Record<string, unknown>;
+              return (
+                <View key={i} style={{ backgroundColor: colors.surfaceSecondary, borderRadius: radius.sm, padding: spacing.sm, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="footnote" weight="700" style={{ flex: 1 }}>{rec.instrument as string}</Typography>
+                    {rec.tax_saving != null && (
+                      <Typography variant="footnote" color={colors.gain} weight="700">
+                        Save {formatCompact(rec.tax_saving as number)}
+                      </Typography>
+                    )}
+                  </View>
+                  {rec.recommended_amount != null && (
+                    <Typography variant="caption" color={colors.textSecondary}>
+                      Invest {formatCompact(rec.recommended_amount as number)}/yr
+                    </Typography>
+                  )}
+                  {rec.notes ? (
+                    <Typography variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
+                      {rec.notes as string}
+                    </Typography>
+                  ) : null}
+                </View>
+              );
+            })}
+            {/* Old format: summary + estimated_savings */}
             {typeof taxOpt.summary === 'string' && (
               <Typography variant="body" color={colors.textSecondary} style={{ lineHeight: 20 }}>{taxOpt.summary}</Typography>
             )}
@@ -637,30 +807,95 @@ export default function PlanScreen() {
                 </Typography>
               </View>
             )}
+            {/* New format: NPS / 80D specific benefits */}
+            {(taxOpt.nps_tier1_benefit != null || taxOpt['80d_health_premium_benefit'] != null) && (
+              <View style={{ backgroundColor: colors.gainSoft, borderRadius: radius.sm, padding: spacing.sm, gap: 2 }}>
+                {taxOpt.nps_tier1_benefit != null && (
+                  <Typography variant="caption" color={colors.gain} weight="700">
+                    NPS 80CCD(1B): Save {formatCompact(taxOpt.nps_tier1_benefit as number)}/yr
+                  </Typography>
+                )}
+                {taxOpt['80d_health_premium_benefit'] != null && (
+                  <Typography variant="caption" color={colors.gain} weight="700">
+                    Health Insurance 80D: Save {formatCompact(taxOpt['80d_health_premium_benefit'] as number)}/yr
+                  </Typography>
+                )}
+              </View>
+            )}
           </Card>
         )}
 
         {/* ── Insurance Gaps ── */}
-        {insGaps && (
-          <Card style={{ gap: spacing.sm }}>
-            <SectionHeader title="Insurance Gaps" />
-            {(insGaps.gaps as string[] | undefined)?.map((g, i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <Typography variant="caption" color={palette.red400} weight="700">!</Typography>
-                <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{g}</Typography>
-              </View>
-            ))}
-            {(insGaps.recommendations as string[] | undefined)?.map((r, i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <Typography variant="caption" color={palette.purple500} weight="700">→</Typography>
-                <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{r}</Typography>
-              </View>
-            ))}
-            {typeof insGaps.summary === 'string' && (
-              <Typography variant="body" color={colors.textSecondary} style={{ lineHeight: 20 }}>{insGaps.summary}</Typography>
-            )}
-          </Card>
-        )}
+        {insGaps && (() => {
+          const ig = insGaps as Record<string, unknown>;
+          // Old format: { gaps: string[], recommendations: string[], summary: string }
+          if (Array.isArray(ig.gaps) || Array.isArray(ig.recommendations)) {
+            const gaps = ig.gaps as string[] | undefined;
+            const recs = ig.recommendations as string[] | undefined;
+            if (!gaps?.length && !recs?.length) return null;
+            return (
+              <Card style={{ gap: spacing.sm }}>
+                <SectionHeader title="Insurance Gaps" />
+                {gaps?.map((g, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <Typography variant="caption" color={palette.red400} weight="700">!</Typography>
+                    <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{g}</Typography>
+                  </View>
+                ))}
+                {recs?.map((r, i) => (
+                  <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <Typography variant="caption" color={palette.purple500} weight="700">→</Typography>
+                    <Typography variant="body" color={colors.textSecondary} style={{ flex: 1, lineHeight: 20 }}>{r}</Typography>
+                  </View>
+                ))}
+                {typeof ig.summary === 'string' && (
+                  <Typography variant="body" color={colors.textSecondary} style={{ lineHeight: 20 }}>{ig.summary}</Typography>
+                )}
+              </Card>
+            );
+          }
+          // New format: each key is an insurance type object with { adequate, gap, ... }
+          const inadequateEntries = Object.entries(ig).filter(([, detail]) => {
+            if (typeof detail !== 'object' || detail == null) return false;
+            return (detail as Record<string, unknown>).adequate !== true;
+          });
+          if (inadequateEntries.length === 0) return null;
+          return (
+            <Card style={{ gap: spacing.sm }}>
+              <SectionHeader title="Insurance Gaps" />
+              {inadequateEntries.map(([type, detail]) => {
+                const d = detail as Record<string, unknown>;
+                return (
+                  <View key={type} style={{ backgroundColor: colors.lossSoft, borderRadius: radius.sm, padding: spacing.sm, gap: 4 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="footnote" weight="700" color={colors.loss}>
+                        {type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </Typography>
+                      {d.gap != null && (
+                        <Chip label={`Gap: ${formatCompact(d.gap as number)}`} color={colors.loss} />
+                      )}
+                    </View>
+                    {d.current_coverage != null && d.recommended_coverage != null && (
+                      <Typography variant="caption" color={colors.textSecondary}>
+                        Current: {formatCompact(d.current_coverage as number)} → Recommended: {formatCompact(d.recommended_coverage as number)}
+                      </Typography>
+                    )}
+                    {d.reasoning ? (
+                      <Typography variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
+                        {d.reasoning as string}
+                      </Typography>
+                    ) : null}
+                    {d.annual_premium_estimate != null && (
+                      <Typography variant="caption" color={colors.warning} weight="600">
+                        Est. premium: {formatCompact(d.annual_premium_estimate as number)}/yr
+                      </Typography>
+                    )}
+                  </View>
+                );
+              })}
+            </Card>
+          );
+        })()}
 
         {/* ── Expense Reduction ── */}
         {expReduction.length > 0 && (
@@ -668,30 +903,32 @@ export default function PlanScreen() {
             <SectionHeader title="Expense Reduction" />
             {expReduction.map((item, i) => {
               const cat = item.category as string | undefined;
-              const suggestion = item.suggestion as string | undefined;
-              const savings = item.potential_savings as number | null | undefined;
+              const tip = (item.tip ?? item.suggestion) as string | undefined;
+              const saving = (item.saving ?? item.potential_savings) as number | null | undefined;
+              const currentMonthly = item.current_monthly as number | undefined;
+              const recommendedMonthly = item.recommended_monthly as number | undefined;
               return (
-                <View key={i} style={{
-                  backgroundColor: colors.surfaceSecondary,
-                  borderRadius: radius.sm,
-                  padding: spacing.sm,
-                  gap: 4,
-                }}>
-                  {cat ? (
-                    <Typography variant="caption" color={colors.accent} weight="700">
-                      {cat.replace(/_/g, ' ').toUpperCase()}
-                    </Typography>
-                  ) : null}
-                  {suggestion ? (
-                    <Typography variant="body" color={colors.textSecondary} style={{ lineHeight: 20 }}>
-                      {suggestion}
-                    </Typography>
-                  ) : null}
-                  {savings != null && (
-                    <Typography variant="footnote" color={colors.gain} weight="700">
-                      Save {formatCompact(savings)}/mo
+                <View key={i} style={{ backgroundColor: colors.surfaceSecondary, borderRadius: radius.sm, padding: spacing.sm, gap: 4 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {cat ? (
+                      <Typography variant="caption" color={colors.accent} weight="700" style={{ flex: 1 }}>
+                        {cat.replace(/_/g, ' ').toUpperCase()}
+                      </Typography>
+                    ) : null}
+                    {saving != null && (
+                      <Typography variant="caption" color={colors.gain} weight="700">
+                        Save {formatCompact(saving)}/mo
+                      </Typography>
+                    )}
+                  </View>
+                  {currentMonthly != null && recommendedMonthly != null && (
+                    <Typography variant="caption" color={colors.textSecondary}>
+                      {formatCompact(currentMonthly)} → {formatCompact(recommendedMonthly)}/mo
                     </Typography>
                   )}
+                  {tip ? (
+                    <Typography variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>{tip}</Typography>
+                  ) : null}
                 </View>
               );
             })}
@@ -700,7 +937,10 @@ export default function PlanScreen() {
 
         {/* ── Action Items ── */}
         {activePlan!.action_items.length > 0 && (
-          <ActionItemsSection items={activePlan!.action_items} />
+          <ActionItemsSection
+            items={activePlan!.action_items}
+            planJsonItems={pj.action_items as Array<Record<string, unknown>> | undefined}
+          />
         )}
       </ScrollView>
     </SafeAreaView>

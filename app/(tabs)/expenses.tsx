@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { View, ScrollView, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BarChart, PieChart } from 'react-native-gifted-charts';
@@ -96,7 +96,7 @@ export default function ExpensesScreen() {
   const barWidth = Math.max(20, Math.min(40, Math.floor((chartWidth - 20) / Math.max(months.length, 1)) - 8));
   const barSpacing = Math.max(4, Math.floor((chartWidth - months.length * barWidth - 20) / Math.max(months.length, 1)));
 
-  const barData = months.map((m) => ({
+  const barData = useMemo(() => months.map((m) => ({
     value: byMonth[m],
     label: dayjs(m).format('MMM'),
     frontColor: colors.accent,
@@ -106,7 +106,7 @@ export default function ExpensesScreen() {
       </Typography>
     ),
     onPress: () => router.push(`/expenses/${m}` as any),
-  }));
+  })), [months, byMonth, colors.accent, colors.textSecondary, router]);
 
   // Give the tallest bar 20 % headroom so its top label is never clipped
   const maxBarValue = months.length > 0 ? Math.max(...months.map((m) => byMonth[m])) : 0;
@@ -114,13 +114,13 @@ export default function ExpensesScreen() {
 
   // Pie chart for category breakdown
   const pieRadius = Math.min(90, (chartWidth - 32) / 2);
-  const pieData = topCats.map((cat) => ({
+  const pieData = useMemo(() => topCats.map((cat) => ({
     value: cat.amount,
     color: cat.color,
     text: total > 0 && (cat.amount / total) * 100 >= 8
       ? `${((cat.amount / total) * 100).toFixed(0)}%`
       : '',
-  }));
+  })), [topCats, total]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>

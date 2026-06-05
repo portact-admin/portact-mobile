@@ -19,6 +19,34 @@ import dayjs from 'dayjs';
 type SortField = 'date' | 'description' | 'category' | 'amount';
 type SortDir = 'asc' | 'desc';
 
+function SortHeader({ field, label, flex, align, active, dir, onPress }: {
+  field: SortField; label: string; flex?: number; align?: 'left' | 'right';
+  active: boolean; dir: SortDir; onPress: (f: SortField) => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={() => onPress(field)}
+      style={{ flex, alignItems: align === 'right' ? 'flex-end' : 'flex-start', flexDirection: 'row', gap: 2 }}
+    >
+      <Typography
+        variant="micro"
+        weight="600"
+        color={active ? colors.accent : colors.textTertiary}
+      >
+        {label}
+      </Typography>
+      {active && (
+        <Ionicons
+          name={dir === 'asc' ? 'arrow-up' : 'arrow-down'}
+          size={9}
+          color={colors.accent}
+        />
+      )}
+    </Pressable>
+  );
+}
+
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 function displayName(e: RawExpense): string {
@@ -106,33 +134,6 @@ export default function MonthExpensesScreen() {
 
   const monthLabel = month ? dayjs(month).format('MMMM YYYY') : '';
   const pieRadius = Math.min(90, (SCREEN_WIDTH - 64) / 2);
-
-  function SortHeader({ field, label, flex, align }: {
-    field: SortField; label: string; flex?: number; align?: 'left' | 'right';
-  }) {
-    const active = sortField === field;
-    return (
-      <Pressable
-        onPress={() => handleSort(field)}
-        style={{ flex, alignItems: align === 'right' ? 'flex-end' : 'flex-start', flexDirection: 'row', gap: 2 }}
-      >
-        <Typography
-          variant="micro"
-          weight="600"
-          color={active ? colors.accent : colors.textTertiary}
-        >
-          {label}
-        </Typography>
-        {active && (
-          <Ionicons
-            name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'}
-            size={9}
-            color={colors.accent}
-          />
-        )}
-      </Pressable>
-    );
-  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
@@ -225,12 +226,12 @@ export default function MonthExpensesScreen() {
                 borderColor: colors.border,
               }}
             >
-              <SortHeader field="date" label="DATE" flex={undefined} />
+              <SortHeader field="date" label="DATE" active={sortField === 'date'} dir={sortDir} onPress={handleSort} />
               <View style={{ width: 8 }} />
-              <SortHeader field="description" label="DESCRIPTION" flex={1} />
-              <SortHeader field="category" label="CATEGORY" flex={undefined} />
+              <SortHeader field="description" label="DESCRIPTION" flex={1} active={sortField === 'description'} dir={sortDir} onPress={handleSort} />
+              <SortHeader field="category" label="CATEGORY" active={sortField === 'category'} dir={sortDir} onPress={handleSort} />
               <View style={{ width: 8 }} />
-              <SortHeader field="amount" label="AMOUNT" align="right" />
+              <SortHeader field="amount" label="AMOUNT" align="right" active={sortField === 'amount'} dir={sortDir} onPress={handleSort} />
             </View>
           </View>
         }

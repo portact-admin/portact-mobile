@@ -3,7 +3,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 // Large backup JSON is stored as a plain file — AsyncStorage (SQLite) cannot
 // handle multi-MB strings reliably on Android.
-const BACKUP_FILE = `${FileSystem.documentDirectory}portact_backup.json`;
+const DOC_DIR = FileSystem.documentDirectory ?? `${FileSystem.cacheDirectory}docs/`;
+const BACKUP_FILE = `${DOC_DIR}portact_backup.json`;
 
 const KEYS = {
   BACKUP_META: 'portact:backup_meta',
@@ -92,8 +93,12 @@ export const storage = {
     return (await get(KEYS.GOOGLE_WEB_CLIENT_ID)) ?? '';
   },
 
+  userBackupPath(driveFileId: string): string {
+    return `${DOC_DIR}portact_user_${driveFileId}.json`;
+  },
+
   async saveUserBackup(driveFileId: string, json: string, meta: BackupMeta): Promise<void> {
-    const path = `${FileSystem.documentDirectory}portact_user_${driveFileId}.json`;
+    const path = this.userBackupPath(driveFileId);
     await Promise.all([
       FileSystem.writeAsStringAsync(path, json, { encoding: FileSystem.EncodingType.UTF8 }),
       set(`portact:user_meta_${driveFileId}`, JSON.stringify(meta)),
@@ -101,7 +106,7 @@ export const storage = {
   },
 
   async loadUserBackup(driveFileId: string): Promise<{ json: string; meta: BackupMeta } | null> {
-    const path = `${FileSystem.documentDirectory}portact_user_${driveFileId}.json`;
+    const path = this.userBackupPath(driveFileId);
     const [info, rawMeta] = await Promise.all([
       FileSystem.getInfoAsync(path),
       get(`portact:user_meta_${driveFileId}`),
@@ -116,9 +121,18 @@ export const storage = {
   },
 
   async clearAll(): Promise<void> {
+    // Collect all per-user meta keys from AsyncStorage so we can delete those cache files too.
+    const allKeys = await AsyncStorage.getAllKeys();
+    const userMetaKeys = allKeys.filter((k) => k.startsWith('portact:user_meta_'));
+    const userFileIds = userMetaKeys.map((k) => k.replace('portact:user_meta_', ''));
+
     await Promise.all([
       AsyncStorage.multiRemove(Object.values(KEYS)),
+      AsyncStorage.multiRemove(userMetaKeys),
       FileSystem.deleteAsync(BACKUP_FILE, { idempotent: true }),
+      ...userFileIds.map((id) =>
+        FileSystem.deleteAsync(this.userBackupPath(id), { idempotent: true }),
+      ),
     ]);
   },
 };

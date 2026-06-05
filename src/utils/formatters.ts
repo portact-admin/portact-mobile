@@ -27,6 +27,7 @@ export function formatCurrency(
 }
 
 export function formatCompact(value: number, currency = 'INR'): string {
+  if (!isFinite(value)) return '—';
   const abs = Math.abs(value);
   const sign = value < 0 ? '-' : '';
   const prefix = currency === 'USD' ? '$' : '₹';
@@ -70,8 +71,8 @@ export function formatRelativeDate(dateStr: string | null): string {
   return d.format('DD MMM YYYY');
 }
 
-export function gainColor(value: number, gainColor: string, lossColor: string, neutralColor: string): string {
-  if (value > 0) return gainColor;
-  if (value < 0) return lossColor;
+export function gainColor(value: number, positiveColor: string, negativeColor: string, neutralColor: string): string {
+  if (value > 0) return positiveColor;
+  if (value < 0) return negativeColor;
   return neutralColor;
 }

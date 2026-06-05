@@ -5,7 +5,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
-import { LineChart } from 'react-native-gifted-charts';
 import { Dimensions } from 'react-native';
 import { useTheme } from '@hooks/useTheme';
 import { usePortfolioStore } from '@store/usePortfolioStore';
@@ -182,49 +181,7 @@ function SemiCircleGauge({ value, zones, ticks, isDark }: GaugeProps) {
   );
 }
 
-// ─── Mini sparkline ────────────────────────────────────────────────────────────
-
-function Sparkline({ points }: { points: RawMacroDataPoint[] }) {
-  const { colors } = useTheme();
-  if (points.length < 2) return null;
-
-  const vals = points.map((p) => p.value);
-  const minV = Math.min(...vals), maxV = Math.max(...vals);
-  const floor = Math.max(0, minV - (maxV - minV) * 0.1);
-  const chartW = SCREEN_W - 64 - 32;
-
-  return (
-    <View style={{ marginTop: 12 }}>
-      <Typography variant="micro" color={colors.textTertiary} style={{ marginBottom: 4 }}>
-        60-day history
-      </Typography>
-      <LineChart
-        data={points.map((p) => ({ value: p.value - floor }))}
-        width={chartW}
-        height={48}
-        maxValue={(maxV - floor) * 1.15}
-        color={colors.accent}
-        thickness={1.5}
-        areaChart
-        startFillColor={`${colors.accent}25`}
-        endFillColor="transparent"
-        curved
-        curvature={0.2}
-        hideDataPoints
-        hideYAxisText
-        yAxisColor="transparent"
-        xAxisColor="transparent"
-        hideRules
-        initialSpacing={0}
-        endSpacing={0}
-        spacing={Math.max(2, Math.floor(chartW / Math.max(points.length - 1, 1)))}
-        disableScroll
-      />
-    </View>
-  );
-}
-
-// ─── Sentiment Card (gauge + sparkline) ───────────────────────────────────────
+// ─── Sentiment Card ───────────────────────────────────────────────────────────
 
 function SentimentCard({
   title, value, zones, ticks, history, loading,
@@ -488,8 +445,7 @@ export default function MarketScreen() {
       label: q.label,
       primary: q.currency === 'INR'
         ? formatCompact(q.price)
-        : q.price.toLocaleString('en-US', { maximumFractionDigits: 0 }),
-      secondary: q.currency === 'USD' ? `$${q.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : undefined,
+        : `$${q.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
       changePct: q.changePct,
       bgColor: cfg.bg,
     };

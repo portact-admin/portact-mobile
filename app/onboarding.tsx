@@ -77,7 +77,8 @@ export default function OnboardingScreen() {
         source: 'manual',
       });
       await storage.markOnboardingDone();
-      router.replace('/(tabs)/');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      router.replace('/(tabs)/' as any);
     } catch (err) {
       // Only show the message for domain errors we write ourselves.
       // Raw JS/system errors (ReferenceError, TypeError, etc.) must never reach the user.
