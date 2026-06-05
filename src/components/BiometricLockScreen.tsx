@@ -1,10 +1,9 @@
 import React, { useEffect, useCallback } from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet, Image, Pressable } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@components/ui/Typography';
-import { Button } from '@components/ui/Button';
 import { useBiometricStore } from '@store/useBiometricStore';
 
 const BRAND_BG  = '#0B1120';
@@ -51,20 +50,19 @@ export function BiometricLockScreen() {
         />
         <Typography variant="title2" weight="800" color="#FFFFFF">PortAct</Typography>
 
-        <View style={styles.lockIcon}>
+        <Pressable
+          onPress={authenticate}
+          accessibilityRole="button"
+          accessibilityLabel="Authenticate to unlock"
+          hitSlop={16}
+          style={({ pressed }) => [styles.lockIcon, { opacity: pressed ? 0.6 : 1 }]}
+        >
           <Ionicons name="finger-print" size={48} color="#4D94FF" />
-        </View>
+        </Pressable>
 
         <Typography variant="body" color="rgba(255,255,255,0.5)" align="center">
-          Authenticate to unlock
+          Tap the icon to unlock
         </Typography>
-
-        <Button
-          label="Unlock"
-          variant="primary"
-          onPress={authenticate}
-          style={{ marginTop: 8 }}
-        />
       </View>
     </View>
   );

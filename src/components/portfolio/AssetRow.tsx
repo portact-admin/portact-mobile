@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, PixelRatio } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Asset } from '@models/portfolio';
 import { Typography } from '@components/ui/Typography';
@@ -44,9 +44,19 @@ function ratingBg(rating: number, gainSoft: string, warningSoft: string, lossSof
 export type SortKey = 'name' | 'invested' | 'value' | 'day';
 export type SortDir = 'asc' | 'desc';
 
-const COL_INVESTED = 62;
-const COL_VALUE    = 68;
-const COL_DAY      = 46;
+// Base column widths (at the default system font scale). They grow with the
+// user's system font scale so enlarged fonts don't overflow / wrap the "%" or
+// the header letters onto a second line. Capped so the name column keeps room.
+const BASE_COL_VALUE = 70;
+const BASE_COL_DAY   = 52;
+
+function useColumnWidths() {
+  const scale = Math.min(Math.max(PixelRatio.getFontScale(), 1), 1.6);
+  return {
+    value: Math.round(BASE_COL_VALUE * scale),
+    day: Math.round(BASE_COL_DAY * scale),
+  };
+}
 
 interface AssetRowProps {
   asset: Asset;
@@ -54,6 +64,7 @@ interface AssetRowProps {
 
 export function AssetRow({ asset }: AssetRowProps) {
   const { colors, spacing, radius } = useTheme();
+  const cols = useColumnWidths();
   const router = useRouter();
   const livePrices = usePortfolioStore((s) => s.livePrices);
   const mfRatingsByAssetId = usePortfolioStore((s) => s.mfRatingsByAssetId);
@@ -70,13 +81,19 @@ export function AssetRow({ asset }: AssetRowProps) {
   const hasDayChange = dayChangePct != null && isFinite(dayChangePct);
 
   const showSymbol =
+    asset.assetType !== 'us_stock' &&
     asset.symbol &&
     asset.symbol.toUpperCase() !== asset.name.toUpperCase().slice(0, asset.symbol.length + 2);
   const showQty = asset.quantity != null && !NO_QTY_TYPES.has(asset.assetType);
 
+  const investedLabel = formatCompact(asset.totalInvested, asset.currency);
   const subtitleParts: string[] = [];
   if (showSymbol) subtitleParts.push(asset.symbol!);
-  if (showQty) subtitleParts.push(`${formatQty(asset.quantity!, asset.assetType)} units`);
+  if (showQty) {
+    subtitleParts.push(`${formatQty(asset.quantity!, asset.assetType)} units (${investedLabel})`);
+  } else {
+    subtitleParts.push(`Invested ${investedLabel}`);
+  }
 
   // Recompute P&L from the live currentValue so it stays in sync after a price
   // refresh. asset.profitLoss / profitLossPercent are stale backup values and
@@ -161,29 +178,22 @@ export function AssetRow({ asset }: AssetRowProps) {
         </View>
       </View>
 
-      {/* Invested column */}
-      <View style={{ width: COL_INVESTED, alignItems: 'flex-end', gap: 2 }}>
-        <Typography variant="footnote" weight="500">
-          {formatCompact(asset.totalInvested, asset.currency)}
-        </Typography>
-      </View>
-
       {/* Current value column — overall change % below */}
-      <View style={{ width: COL_VALUE, alignItems: 'flex-end', gap: 2 }}>
-        <Typography variant="footnote" weight="700">
+      <View style={{ width: cols.value, alignItems: 'flex-end', gap: 2 }}>
+        <Typography variant="footnote" weight="700" numberOfLines={1}>
           {formatCompact(currentValue, asset.currency)}
         </Typography>
         {overallLabel && (
-          <Typography variant="micro" weight="600" color={overallColor}>
+          <Typography variant="micro" weight="600" color={overallColor} numberOfLines={1}>
             {overallLabel}
           </Typography>
         )}
       </View>
 
       {/* Daily change % column */}
-      <View style={{ width: COL_DAY, alignItems: 'flex-end', justifyContent: 'center', height: 34 }}>
+      <View style={{ width: cols.day, alignItems: 'flex-end', justifyContent: 'center', height: 34 }}>
         {dayLabel ? (
-          <Typography variant="micro" weight="600" color={dayColor}>
+          <Typography variant="micro" weight="600" color={dayColor} numberOfLines={1}>
             {dayLabel}
           </Typography>
         ) : (
@@ -202,6 +212,7 @@ interface AssetColumnHeaderProps {
 
 export function AssetColumnHeader({ sortKey, sortDir, onSort }: AssetColumnHeaderProps) {
   const { colors, spacing } = useTheme();
+  const cols = useColumnWidths();
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) {
@@ -240,6 +251,7 @@ export function AssetColumnHeader({ sortKey, sortDir, onSort }: AssetColumnHeade
           variant="micro"
           color={sortKey === 'name' ? colors.accent : colors.textTertiary}
           weight="600"
+          numberOfLines={1}
         >
           NAME
         </Typography>
@@ -247,30 +259,16 @@ export function AssetColumnHeader({ sortKey, sortDir, onSort }: AssetColumnHeade
       </Pressable>
 
       <Pressable
-        onPress={() => onSort('invested')}
-        hitSlop={8}
-        style={{ width: COL_INVESTED, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
-      >
-        <SortIcon col="invested" />
-        <Typography
-          variant="micro"
-          color={sortKey === 'invested' ? colors.accent : colors.textTertiary}
-          weight="600"
-        >
-          INVESTED
-        </Typography>
-      </Pressable>
-
-      <Pressable
         onPress={() => onSort('value')}
         hitSlop={8}
-        style={{ width: COL_VALUE, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
+        style={{ width: cols.value, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
       >
         <SortIcon col="value" />
         <Typography
           variant="micro"
           color={sortKey === 'value' ? colors.accent : colors.textTertiary}
           weight="600"
+          numberOfLines={1}
         >
           VALUE
         </Typography>
@@ -279,13 +277,14 @@ export function AssetColumnHeader({ sortKey, sortDir, onSort }: AssetColumnHeade
       <Pressable
         onPress={() => onSort('day')}
         hitSlop={8}
-        style={{ width: COL_DAY, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
+        style={{ width: cols.day, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}
       >
         <SortIcon col="day" />
         <Typography
           variant="micro"
           color={sortKey === 'day' ? colors.accent : colors.textTertiary}
           weight="600"
+          numberOfLines={1}
         >
           DAY%
         </Typography>
