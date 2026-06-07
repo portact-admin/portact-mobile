@@ -84,7 +84,14 @@ export default function AppSplash() {
     GoogleSignin.configure({ webClientId: WEB_CLIENT_ID, scopes: DRIVE_SCOPES });
 
     (async () => {
-      await loadFromStorage();
+      // Bound the local read so a stalled FileSystem/AsyncStorage call can never
+      // leave the splash hanging forever (observed after long sessions / if the
+      // backup file was left partial by a killed write). If it doesn't finish in
+      // time we fall through — the Drive check below can still restore the data.
+      await Promise.race([
+        loadFromStorage(),
+        new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+      ]);
       const localLoaded = usePortfolioStore.getState().status === 'loaded';
       if (localLoaded) setHasData(true);
 

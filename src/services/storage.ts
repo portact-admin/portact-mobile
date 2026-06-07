@@ -33,8 +33,14 @@ async function get(key: string): Promise<string | null> {
 
 export const storage = {
   async saveBackup(json: string, meta: BackupMeta): Promise<void> {
+    // Write atomically: a process kill mid-write would otherwise leave
+    // BACKUP_FILE truncated, which makes the next launch fail to parse (or
+    // stall) on startup. Write to a temp file first, then move it into place.
+    const tmp = `${BACKUP_FILE}.tmp`;
+    await FileSystem.writeAsStringAsync(tmp, json, { encoding: FileSystem.EncodingType.UTF8 });
+    await FileSystem.deleteAsync(BACKUP_FILE, { idempotent: true });
+    await FileSystem.moveAsync({ from: tmp, to: BACKUP_FILE });
     await Promise.all([
-      FileSystem.writeAsStringAsync(BACKUP_FILE, json, { encoding: FileSystem.EncodingType.UTF8 }),
       set(KEYS.BACKUP_META, JSON.stringify(meta)),
       set(KEYS.LAST_SYNC_AT, new Date().toISOString()),
     ]);
