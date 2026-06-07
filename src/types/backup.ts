@@ -24,6 +24,7 @@ export interface BackupFile {
   macro_data_points?: RawMacroDataPoint[];
   mf_systematic_plans?: RawMFSystematicPlan[];
   mf_ratings?: RawMFRating[];
+  stock_ratings?: RawStockRating[];
   statement_passwords?: RawStatementPassword[];
   ff_profile?: RawFFProfile | null;
   ff_income_sources?: RawFFIncomeSource[];
@@ -211,6 +212,53 @@ export interface RawMFSystematicPlan {
   frequency: string;
   start_date: string | null;
   is_active: boolean;
+}
+
+export interface RawStockPeer {
+  company_name: string;
+  revenue_growth_3y?: string | null;
+  ebitda_margin?: string | null;
+  fcf_margin?: string | null;
+  roe?: string | null;
+  roic?: string | null;
+  pe_ratio?: string | null;
+  market_cap?: string | null;
+  composite_rank?: number | null;
+  key_differentiator?: string | null;
+}
+
+export interface RawStockRating {
+  id: number;
+  user_id: number;
+  asset_id: number;
+  company_name: string;
+  ticker?: string | null;
+  exchange?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  market_cap_category?: string | null;
+  rating: number;
+  rating_breakdown?: {
+    business_quality?: number;
+    financial_health?: number;
+    valuation?: number;
+    growth?: number;
+    management?: number;
+  } | null;
+  key_metrics?: Record<string, string> | null;
+  peer_comparison?: RawStockPeer[] | null;
+  best_in_class_name?: string | null;
+  best_in_class_reason?: string | null;
+  strengths?: string[] | null;
+  weaknesses?: string[] | null;
+  justification?: string | null;
+  investment_recommendation?: string | null;
+  recommendation_3y?: string | null;
+  recommendation_5y?: string | null;
+  recommendation_10y?: string | null;
+  suitable_for?: string | null;
+  ai_provider?: string | null;
+  created_at?: string | null;
 }
 
 export interface RawMFRating {

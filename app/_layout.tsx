@@ -69,6 +69,13 @@ export default function RootLayout() {
               animation: 'slide_from_bottom',
             }}
           />
+          <Stack.Screen
+            name="stock-rating/[id]"
+            options={{
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
+            }}
+          />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

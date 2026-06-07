@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BackupFile, RawMFRating } from '@models/backup';
+import { BackupFile, RawMFRating, RawStockRating } from '@models/backup';
 import { Asset, Portfolio, AssetAllocation, PortfolioSnapshot, PortfolioSummary, AssetFilter } from '@models/portfolio';
 import {
   parseBackupJson,
@@ -35,6 +35,8 @@ interface PortfolioStore {
 
   // MF ratings — indexed by asset id (primary) and fund name (fallback)
   mfRatingsByAssetId: MFRatingLookup;
+  // Stock ratings — indexed by asset id (primary) and ticker symbol (fallback)
+  stockRatingsByAssetId: StockRatingLookup;
 
   // live price overlay (applied on top of backup prices)
   livePrices: Map<number, LivePrice>;
@@ -80,6 +82,30 @@ export function lookupMFRating(
 ): RawMFRating | undefined {
   return lookup.byAssetId.get(assetId)
     ?? lookup.byFundName.get(normaliseFundName(assetName));
+}
+
+export interface StockRatingLookup {
+  byAssetId: Map<number, RawStockRating>;
+  byTicker: Map<string, RawStockRating>;
+}
+
+function buildStockRatingsMap(backup: BackupFile): StockRatingLookup {
+  const byAssetId = new Map<number, RawStockRating>();
+  const byTicker = new Map<string, RawStockRating>();
+  for (const r of backup.stock_ratings ?? []) {
+    byAssetId.set(r.asset_id, r);
+    if (r.ticker) byTicker.set(r.ticker.toLowerCase(), r);
+  }
+  return { byAssetId, byTicker };
+}
+
+export function lookupStockRating(
+  assetId: number,
+  ticker: string | null | undefined,
+  lookup: StockRatingLookup,
+): RawStockRating | undefined {
+  return lookup.byAssetId.get(assetId)
+    ?? (ticker ? lookup.byTicker.get(ticker.toLowerCase()) : undefined);
 }
 
 function deriveState(backup: BackupFile): Pick<
@@ -138,6 +164,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   summary: null,
   typeDisplayMap: {},
   mfRatingsByAssetId: { byAssetId: new Map(), byFundName: new Map() },
+  stockRatingsByAssetId: { byAssetId: new Map(), byTicker: new Map() },
   livePrices: new Map(),
   lastPriceRefresh: null,
   priceRefreshing: false,
@@ -163,6 +190,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         backupMeta: meta,
         ...derived,
         mfRatingsByAssetId: buildMFRatingsMap(backup),
+        stockRatingsByAssetId: buildStockRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
       });
     } catch (err) {
@@ -192,6 +220,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         backupMeta: meta,
         ...derived,
         mfRatingsByAssetId: buildMFRatingsMap(backup),
+        stockRatingsByAssetId: buildStockRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
       });
 
@@ -272,6 +301,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       summary: null,
       typeDisplayMap: {},
       mfRatingsByAssetId: { byAssetId: new Map(), byFundName: new Map() },
+      stockRatingsByAssetId: { byAssetId: new Map(), byTicker: new Map() },
       selectedPortfolioId: null,
     });
   },

@@ -6,7 +6,7 @@ import { Typography } from '@components/ui/Typography';
 import { useTheme } from '@hooks/useTheme';
 import { formatCompact, formatPercent } from '@utils/formatters';
 import { assetTypeColors } from '@theme/colors';
-import { usePortfolioStore, lookupMFRating } from '@store/usePortfolioStore';
+import { usePortfolioStore, lookupMFRating, lookupStockRating } from '@store/usePortfolioStore';
 import { Ionicons } from '@expo/vector-icons';
 
 const NO_QTY_TYPES = new Set([
@@ -21,6 +21,10 @@ const NO_QTY_TYPES = new Set([
 
 const MF_TYPES = new Set([
   'equity_mutual_fund', 'hybrid_mutual_fund', 'debt_mutual_fund', 'mutual_fund',
+]);
+
+const STOCK_TYPES = new Set([
+  'stock', 'us_stock', 'esop', 'rsu', 'reit', 'invit',
 ]);
 
 function formatQty(quantity: number, assetType: string): string {
@@ -68,6 +72,7 @@ export function AssetRow({ asset }: AssetRowProps) {
   const router = useRouter();
   const livePrices = usePortfolioStore((s) => s.livePrices);
   const mfRatingsByAssetId = usePortfolioStore((s) => s.mfRatingsByAssetId);
+  const stockRatingsByAssetId = usePortfolioStore((s) => s.stockRatingsByAssetId);
 
   const live = livePrices.get(asset.id);
   const currentPrice = live?.price ?? asset.currentPrice;
@@ -112,6 +117,9 @@ export function AssetRow({ asset }: AssetRowProps) {
 
   const isMF = MF_TYPES.has(asset.assetType);
   const mfRating = isMF ? lookupMFRating(asset.id, asset.name, mfRatingsByAssetId) : undefined;
+
+  const isStock = STOCK_TYPES.has(asset.assetType);
+  const stockRating = isStock ? lookupStockRating(asset.id, asset.symbol, stockRatingsByAssetId) : undefined;
 
   return (
     <Pressable
@@ -172,6 +180,41 @@ export function AssetRow({ asset }: AssetRowProps) {
                 color={ratingColor(mfRating.rating!, colors.gain, colors.warning, colors.loss)}
               >
                 ★ {mfRating.rating.toFixed(1)}
+              </Typography>
+            </Pressable>
+          )}
+          {stockRating?.rating != null && (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                router.push(`/stock-rating/${asset.id}` as any);
+              }}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={`Stock rating ${stockRating.rating.toFixed(1)} out of 10`}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 2,
+                backgroundColor: ratingBg(
+                  stockRating.rating,
+                  colors.gainSoft,
+                  `${colors.warning}22`,
+                  colors.lossSoft,
+                ),
+                borderRadius: radius.full,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Typography
+                variant="micro"
+                weight="700"
+                color={ratingColor(stockRating.rating, colors.gain, colors.warning, colors.loss)}
+              >
+                ★ {stockRating.rating.toFixed(1)}
               </Typography>
             </Pressable>
           )}

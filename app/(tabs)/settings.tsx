@@ -129,14 +129,32 @@ export default function SettingsScreen() {
   async function handleSyncLatest() {
     setSyncLoading(true);
     try {
-      const { content, file } = await googleDriveService.fetchLatestBackup();
-      await loadFromString(content, {
+      // List all Drive backups and find the one matching the currently loaded file.
+      // Using fetchLatestBackup() would always return files[0] (newest by modification
+      // date), which is wrong when the user has multiple profiles in Drive.
+      const files = await googleDriveService.listBackupFiles();
+      if (files.length === 0) {
+        throw new Error('No PortAct backup files found in your Google Drive. Please export a backup from the PortAct web app first.');
+      }
+      const currentFileName = backupMeta?.fileName;
+      const file = (currentFileName ? files.find((f) => f.name === currentFileName) : undefined) ?? files[0];
+      const content = await googleDriveService.downloadFile(file.id);
+      const meta = {
         fileName: file.name,
         exportVersion: '',
         exportedAt: file.modifiedTime,
         loadedAt: new Date().toISOString(),
-        source: 'google_drive',
-      });
+        source: 'google_drive' as const,
+      };
+      // Update both the primary backup (portact_backup.json, read by loadFromStorage
+      // on next cold start) AND the per-profile cache (portact_user_${id}.json, used
+      // by the profile picker on restart when multiple Drive backups exist).
+      // Without updating the per-profile cache, the profile picker would reload the
+      // stale cached version and overwrite the freshly synced primary backup.
+      await Promise.all([
+        loadFromString(content, meta),
+        storage.saveUserBackup(file.id, content, meta),
+      ]);
       Alert.alert('Synced', `Loaded ${file.name}`);
     } catch (err) {
       Alert.alert('Sync Failed', (err as Error).message);
