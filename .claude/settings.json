@@ -8,7 +8,13 @@
       "Bash(flutter analyze *)",
       "Bash(flutter devices *)",
       "Bash(keytool -list *)",
-      "Bash(keytool -printcert *)"
+      "Bash(keytool -printcert *)",
+      "Bash(adb devices)",
+      "Bash(adb devices *)",
+      "Bash(adb logcat *)",
+      "Bash(adb mdns services*)",
+      "Bash(adb get-state*)",
+      "Bash(gh run watch *)"
     ]
   }
 }

@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { darkColors, lightColors } from '@theme/colors';
 import { useThemeStore } from '@store/useThemeStore';
 import { useBiometricStore } from '@store/useBiometricStore';
+import { usePortfolioStore } from '@store/usePortfolioStore';
 import { BiometricLockScreen } from '@components/BiometricLockScreen';
 
 SplashScreen.preventAutoHideAsync();
@@ -32,8 +33,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (appState.current !== 'active' && nextState === 'active' && enabled) {
-        lock();
+      if (appState.current !== 'active' && nextState === 'active') {
+        if (enabled) lock();
+        // Morning (6 AM IST) price refresh — runs once per day when the app
+        // first comes to the foreground. No-op before 6 AM or if already done.
+        usePortfolioStore.getState().maybeRunDailyRefresh();
       }
       appState.current = nextState;
     });

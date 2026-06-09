@@ -95,6 +95,18 @@ export default function AppSplash() {
       const localLoaded = usePortfolioStore.getState().status === 'loaded';
       if (localLoaded) setHasData(true);
 
+      // If we already have local data, navigate immediately without touching Drive.
+      // checkDailySync() (called after navigation) handles Drive sync in the background.
+      // Skipping the Drive check here eliminates startup hangs after Android kills the
+      // process: signInSilently() can block indefinitely with a stale/expired token,
+      // and Doze mode can prevent the 10 s setTimeout from ever firing.
+      if (localLoaded) {
+        nextRoute.current = '/(tabs)/';
+        setReady(true);
+        return;
+      }
+
+      // No local data — check Drive to auto-load a single backup or show the picker.
       setCheckingDrive(true);
       try {
         const files = await Promise.race([
@@ -109,8 +121,8 @@ export default function AppSplash() {
 
         if (files.length >= 2) {
           setProfiles(files.map((f) => ({ file: f, userName: extractUserName(f.name) })));
-          nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
-        } else if (files.length === 1 && !localLoaded) {
+          nextRoute.current = '/onboarding';
+        } else if (files.length === 1) {
           const content = await googleDriveService.downloadFile(files[0].id);
           await usePortfolioStore.getState().loadFromString(content, {
             fileName:      files[0].name,
@@ -122,10 +134,10 @@ export default function AppSplash() {
           nextRoute.current = '/(tabs)/';
           setHasData(true);
         } else {
-          nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
+          nextRoute.current = '/onboarding';
         }
       } catch {
-        nextRoute.current = localLoaded ? '/(tabs)/' : '/onboarding';
+        nextRoute.current = '/onboarding';
       } finally {
         setCheckingDrive(false);
         setReady(true);

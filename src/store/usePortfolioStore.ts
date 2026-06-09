@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BackupFile, RawMFRating, RawStockRating } from '@models/backup';
-import { Asset, Portfolio, AssetAllocation, PortfolioSnapshot, PortfolioSummary, AssetFilter } from '@models/portfolio';
+import { Asset, Portfolio, AssetAllocation, PortfolioSnapshot, PortfolioSummary, AssetFilter, DailyBaseline, MfNavPoint } from '@models/portfolio';
 import {
   parseBackupJson,
   normaliseAsset,
@@ -9,7 +9,7 @@ import {
   BackupParseError,
 } from '@services/backupParser';
 import { storage, BackupMeta } from '@services/storage';
-import { refreshPrices, countRefreshable, LivePrice } from '@services/priceService';
+import { refreshPrices, countRefreshable, LivePrice, MF_TYPES } from '@services/priceService';
 import {
   computePortfolioSummary,
   computeAllocations,
@@ -43,6 +43,15 @@ interface PortfolioStore {
   lastPriceRefresh: Date | null;
   priceRefreshing: boolean;
 
+  // persisted per-ISIN MF NAV history — the only source of MF day change,
+  // since AMFI publishes the current NAV alone (no previous close)
+  mfNavHistory: Map<string, MfNavPoint>;
+
+  // daily-change tracking: baseline = previous-close net worth for the IST day
+  dailyBaseline: DailyBaseline | null;
+  // IST date the morning (6 AM) auto-refresh has already run for, so it fires once a day
+  lastDailyRefreshDate: string | null;
+
   // ui state
   filter: AssetFilter;
   selectedPortfolioId: number | null;
@@ -51,6 +60,8 @@ interface PortfolioStore {
   loadFromString(json: string, meta: BackupMeta): Promise<void>;
   loadFromStorage(): Promise<void>;
   refreshLivePrices(): Promise<{ refreshed: number; total: number }>;
+  /** Foreground-gated daily refresh: runs once per IST day, only at/after 6 AM IST. */
+  maybeRunDailyRefresh(): void;
   setSelectedPortfolio(id: number | null): void;
   setFilter(patch: Partial<AssetFilter>): void;
   clearData(): Promise<void>;
@@ -58,6 +69,52 @@ interface PortfolioStore {
 
 function normaliseFundName(name: string): string {
   return name.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// MF NAV history is persisted as a JSON object but used as a Map at runtime.
+function recordToMap(rec: Record<string, MfNavPoint>): Map<string, MfNavPoint> {
+  return new Map(Object.entries(rec));
+}
+function mapToRecord(map: Map<string, MfNavPoint>): Record<string, MfNavPoint> {
+  return Object.fromEntries(map);
+}
+
+const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
+
+/** Current date (YYYY-MM-DD) and hour in India Standard Time (UTC+5:30). */
+function istNow(d = new Date()): { date: string; hour: number } {
+  const ist = new Date(d.getTime() + IST_OFFSET_MS);
+  return { date: ist.toISOString().slice(0, 10), hour: ist.getUTCHours() };
+}
+
+/**
+ * Net worth derived from each asset's previous market close.
+ * prevClose is reconstructed from the live price and its day-change %; assets
+ * with no intraday day-change (MFs, physical metals, unrefreshed) contribute
+ * their current value unchanged, so they add nothing to the daily change.
+ */
+function computePrevCloseNetWorth(
+  assets: Asset[],
+  updates: Map<number, LivePrice>,
+  cash: number,
+): number {
+  const assetsTotal = assets.reduce((sum, a) => {
+    const live = updates.get(a.id);
+    if (live != null && a.quantity != null) {
+      // MFs publish a single NAV per day (not intraday), so their day-change
+      // reflects the *previous* settled session, not movement against this frozen
+      // daily baseline. Reconstructing prevClose from it would mis-attribute that
+      // move to today, so MFs use their live price as the baseline (net 0 daily
+      // change), matching liveTotal — the behaviour before MF day-change existed.
+      const pct = MF_TYPES.has(a.assetType) ? undefined : live.dayChangePct;
+      const prevPrice = pct != null && isFinite(pct) && pct > -100
+        ? live.price / (1 + pct / 100)
+        : live.price;
+      return sum + prevPrice * a.quantity;
+    }
+    return sum + a.currentValue;
+  }, 0);
+  return assetsTotal + cash;
 }
 
 export interface MFRatingLookup {
@@ -168,6 +225,9 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   livePrices: new Map(),
   lastPriceRefresh: null,
   priceRefreshing: false,
+  mfNavHistory: new Map(),
+  dailyBaseline: null,
+  lastDailyRefreshDate: null,
   filter: {
     portfolioId: null,
     assetType: null,
@@ -184,6 +244,13 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       await storage.saveBackup(json, { ...meta, exportVersion: backup.export_version });
       const derived = deriveState(backup);
       const defaultPortfolio = derived.portfolios.find((p) => p.isDefault) ?? derived.portfolios[0] ?? null;
+      // A fresh backup invalidates the day's baseline — drop it so the next
+      // refresh recaptures the previous-close net worth from the new data.
+      storage.clearDailyBaseline().catch(() => { /* silent */ });
+      // MF NAV history is keyed by ISIN and outlives any single backup, so it's
+      // preserved (not cleared) — that accumulated history is what makes MF day
+      // change accurate. Load it in case this is the first load of the session.
+      const mfNavHistory = recordToMap(await storage.loadMfNavHistory());
       set({
         status: 'loaded',
         backup,
@@ -192,7 +259,13 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         mfRatingsByAssetId: buildMFRatingsMap(backup),
         stockRatingsByAssetId: buildStockRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
+        dailyBaseline: null,
+        mfNavHistory,
       });
+
+      // Recompute live prices (and the baseline) for the new backup in the
+      // background so Daily Change reflects the imported data without a manual pull.
+      get().refreshLivePrices().catch(() => { /* silent */ });
     } catch (err) {
       const msg = err instanceof BackupParseError ? err.message : 'Failed to load backup.';
       set({ status: 'error', error: msg });
@@ -214,6 +287,13 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       const backup = parseBackupJson(json);
       const derived = deriveState(backup);
       const defaultPortfolio = derived.portfolios.find((p) => p.isDefault) ?? derived.portfolios[0] ?? null;
+      const [storedBaseline, storedMfNav] = await Promise.all([
+        storage.loadDailyBaseline(),
+        storage.loadMfNavHistory(),
+      ]);
+      // A baseline only applies to the IST day it was captured on.
+      const { date: todayIst, hour: istHour } = istNow();
+      const dailyBaseline = storedBaseline && storedBaseline.date === todayIst ? storedBaseline : null;
       set({
         status: 'loaded',
         backup,
@@ -222,6 +302,11 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         mfRatingsByAssetId: buildMFRatingsMap(backup),
         stockRatingsByAssetId: buildStockRatingsMap(backup),
         selectedPortfolioId: defaultPortfolio?.id ?? null,
+        dailyBaseline,
+        mfNavHistory: recordToMap(storedMfNav),
+        // This load-time refresh counts as today's morning refresh once past 6 AM,
+        // so the foreground trigger doesn't fire a redundant one right after.
+        lastDailyRefreshDate: istHour >= 6 ? todayIst : null,
       });
 
       // Auto-refresh prices in the background — don't await so the UI is
@@ -234,7 +319,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   },
 
   async refreshLivePrices() {
-    const { assets, priceRefreshing, summary } = get();
+    const { assets, priceRefreshing, summary, mfNavHistory } = get();
     const total = countRefreshable(assets);
     if (priceRefreshing || assets.length === 0) return { refreshed: 0, total };
     set({ priceRefreshing: true });
@@ -242,7 +327,12 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('price refresh timeout')), 30_000),
       );
-      const updates = await Promise.race([refreshPrices(assets), timeout]);
+      // Work on a copy so refreshPrices' in-place updates don't mutate live state.
+      const workingMfNav = new Map(mfNavHistory);
+      const updates = await Promise.race([refreshPrices(assets, workingMfNav), timeout]);
+      // refreshPrices folded each fund's new NAV into workingMfNav — persist it so
+      // MF day change survives restarts (AMFI never returns a previous close).
+      storage.saveMfNavHistory(mapToRecord(workingMfNav)).catch(() => { /* silent */ });
       if (updates.size > 0 && summary) {
         // Recompute totalValue using live prices so Net Worth reflects the refresh.
         // For each asset: use live price × quantity when available, else keep backup value.
@@ -253,21 +343,43 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
             : a.currentValue;
           return sum + val;
         }, 0);
-        const liveTotal = liveAssetsTotal + summary.bankBalance + summary.dematCash + summary.cryptoCash;
+        const cash = summary.bankBalance + summary.dematCash + summary.cryptoCash;
+        const liveTotal = liveAssetsTotal + cash;
         // Cash is value = invested → 0 gain. P&L only from asset investments (matches web app).
         const liveGainLoss = liveAssetsTotal - summary.totalInvested;
         const liveGainPct = summary.totalInvested > 0
           ? (liveGainLoss / summary.totalInvested) * 100
           : 0;
 
+        // ── Daily Change (since previous market close) ──
+        // Baseline = previous-close net worth, captured once per IST day. prevClose
+        // is constant through a trading day, so keeping an existing same-day baseline
+        // (and persisting it) gives a stable anchor across refreshes and restarts.
+        const todayIst = istNow().date;
+        const existingBaseline = get().dailyBaseline;
+        const baseline: DailyBaseline = existingBaseline && existingBaseline.date === todayIst
+          ? existingBaseline
+          : { date: todayIst, netWorth: computePrevCloseNetWorth(assets, updates, cash) };
+        if (baseline !== existingBaseline) {
+          storage.saveDailyBaseline(baseline).catch(() => { /* silent */ });
+        }
+        const dailyChange = liveTotal - baseline.netWorth;
+        const dailyChangePercent = baseline.netWorth > 0
+          ? (dailyChange / baseline.netWorth) * 100
+          : 0;
+
         set({
           livePrices: updates,
           lastPriceRefresh: new Date(),
+          dailyBaseline: baseline,
+          mfNavHistory: workingMfNav,
           summary: {
             ...summary,
             totalValue: liveTotal,
             totalGainLoss: liveGainLoss,
             gainLossPercent: liveGainPct,
+            dailyChange,
+            dailyChangePercent,
           },
         });
       }
@@ -277,6 +389,16 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     } finally {
       set({ priceRefreshing: false });
     }
+  },
+
+  maybeRunDailyRefresh() {
+    const { status, priceRefreshing, lastDailyRefreshDate } = get();
+    if (status !== 'loaded' || priceRefreshing) return;
+    const { date, hour } = istNow();
+    // Only the morning schedule: at/after 6 AM IST, once per day.
+    if (hour < 6 || lastDailyRefreshDate === date) return;
+    set({ lastDailyRefreshDate: date });
+    get().refreshLivePrices().catch(() => { /* silent */ });
   },
 
   setSelectedPortfolio(id) {
@@ -303,6 +425,11 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       mfRatingsByAssetId: { byAssetId: new Map(), byFundName: new Map() },
       stockRatingsByAssetId: { byAssetId: new Map(), byTicker: new Map() },
       selectedPortfolioId: null,
+      livePrices: new Map(),
+      lastPriceRefresh: null,
+      mfNavHistory: new Map(),
+      dailyBaseline: null,
+      lastDailyRefreshDate: null,
     });
   },
 }));

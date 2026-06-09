@@ -35,6 +35,10 @@ export default function OverviewScreen() {
     ? gainColor(summary.totalGainLoss, colors.gain, colors.loss, colors.textSecondary)
     : colors.textSecondary;
 
+  const dailyColor = summary
+    ? gainColor(summary.dailyChange, colors.gain, colors.loss, colors.textSecondary)
+    : colors.textSecondary;
+
   async function onRefresh() {
     setRefreshing(true);
     await refreshLivePrices();
@@ -98,6 +102,20 @@ export default function OverviewScreen() {
               {summary.totalGainLoss >= 0 ? '+' : ''}{formatCompact(summary.totalGainLoss)}
             </Typography>
           </View>
+
+          {/* Daily change — net worth movement since the previous market close */}
+          {lastPriceRefresh && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ backgroundColor: summary.dailyChange >= 0 ? colors.gainSoft : colors.lossSoft, borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                <Typography variant="footnote" color={dailyColor} weight="700">
+                  {summary.dailyChange >= 0 ? '+' : ''}{formatCompact(summary.dailyChange)} today
+                </Typography>
+              </View>
+              <Typography variant="footnote" color={dailyColor} weight="600">
+                {formatPercent(summary.dailyChangePercent)} · Daily Change
+              </Typography>
+            </View>
+          )}
 
           {/* 3-col breakdown */}
           <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md, gap: spacing.md }}>

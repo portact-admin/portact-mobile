@@ -8,7 +8,7 @@
  *   Crypto                       → CoinGecko simple/price (INR direct, batch)
  *   Physical gold / silver       → Yahoo futures GC=F / SI=F (USD → INR per gram)
  */
-import { Asset } from '@models/portfolio';
+import { Asset, MfNavPoint } from '@models/portfolio';
 
 export interface LivePrice {
   price: number;          // always in INR
@@ -174,31 +174,54 @@ function extractSparkPrice(
 
 // ─── AMFI (Mutual Funds) ───────────────────────────────────────────────────────
 
-let _amfiCache: Map<string, number> | null = null;
+/** A NAV reading from AMFI: the value plus the NAV date it's effective for. */
+interface AmfiNav {
+  nav: number;
+  date: string; // AMFI NAV date normalised to YYYY-MM-DD ('' if unparseable)
+}
+
+let _amfiCache: Map<string, AmfiNav> | null = null;
 let _amfiCacheTime = 0;
-let _amfiFetchPromise: Promise<Map<string, number>> | null = null;
+let _amfiFetchPromise: Promise<Map<string, AmfiNav>> | null = null;
 const AMFI_TTL = 4 * 60 * 60_000;
 
-async function loadAmfi(): Promise<Map<string, number>> {
+const AMFI_MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+/** Parse AMFI's "06-Jun-2026" date column into a sortable "2026-06-06". */
+function parseAmfiDate(s: string): string {
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(s.trim());
+  if (!m) return '';
+  const mon = AMFI_MONTHS[m[2].toLowerCase()];
+  if (!mon) return '';
+  return `${m[3]}-${mon}-${m[1].padStart(2, '0')}`;
+}
+
+async function loadAmfi(): Promise<Map<string, AmfiNav>> {
   const res = await fetchWithTimeout('https://www.amfiindia.com/spages/NAVAll.txt', {}, 20_000);
   if (!res.ok) throw new Error('AMFI fetch failed');
   const text = await res.text();
-  const map = new Map<string, number>();
+  const map = new Map<string, AmfiNav>();
   for (const line of text.split('\n')) {
     const parts = line.split(';');
     if (parts.length < 5) continue;
     const isin1 = parts[1]?.trim();
     const isin2 = parts[2]?.trim();
     const nav = parseFloat(parts[4]?.trim() ?? '');
+    // Column 6 is the NAV date; absent on older formats, so default to ''.
+    const date = parts.length >= 6 ? parseAmfiDate(parts[5] ?? '') : '';
     if (!isNaN(nav) && nav > 0) {
-      if (isin1 && isin1 !== '-' && isin1 !== 'N.A.') map.set(isin1, nav);
-      if (isin2 && isin2 !== '-' && isin2 !== 'N.A.') map.set(isin2, nav);
+      const entry: AmfiNav = { nav, date };
+      if (isin1 && isin1 !== '-' && isin1 !== 'N.A.') map.set(isin1, entry);
+      if (isin2 && isin2 !== '-' && isin2 !== 'N.A.') map.set(isin2, entry);
     }
   }
   return map;
 }
 
-async function getAmfiCache(): Promise<Map<string, number>> {
+async function getAmfiCache(): Promise<Map<string, AmfiNav>> {
   if (_amfiCache && Date.now() - _amfiCacheTime < AMFI_TTL) return _amfiCache;
   if (!_amfiFetchPromise) {
     _amfiFetchPromise = loadAmfi()
@@ -209,9 +232,48 @@ async function getAmfiCache(): Promise<Map<string, number>> {
   return _amfiFetchPromise;
 }
 
-async function fetchMfNav(isin: string): Promise<number | null> {
+async function fetchMfNav(isin: string): Promise<AmfiNav | null> {
   const cache = await getAmfiCache();
   return cache.get(isin) ?? null;
+}
+
+/**
+ * Fold a fresh AMFI NAV reading into a fund's persisted history, returning the
+ * day-change % and the NAV point to persist next.
+ *
+ * MF NAVs publish once per day (end-of-day), so a "day change" is the move
+ * between the two most recent settled NAV dates — not an intraday delta. We
+ * only promote the stored current NAV to "previous close" once AMFI's NAV date
+ * advances, which keeps the baseline stable through the day and across restarts.
+ */
+export function applyMfNavObservation(
+  prev: MfNavPoint | undefined,
+  liveNav: number,
+  liveDate: string,
+): { dayChangePct: number | undefined; point: MfNavPoint } {
+  // First time we've seen this fund — seed the baseline; no change yet.
+  if (!prev) {
+    return {
+      dayChangePct: undefined,
+      point: { curNav: liveNav, curDate: liveDate, prevNav: null, prevDate: null },
+    };
+  }
+  // AMFI published a newer NAV date: the old current becomes the previous close.
+  if (liveDate && prev.curDate && liveDate > prev.curDate) {
+    const dayChangePct = prev.curNav > 0
+      ? ((liveNav - prev.curNav) / prev.curNav) * 100
+      : undefined;
+    return {
+      dayChangePct,
+      point: { curNav: liveNav, curDate: liveDate, prevNav: prev.curNav, prevDate: prev.curDate },
+    };
+  }
+  // Same NAV date (no new NAV since last refresh) or a stale reading: keep the
+  // stored baseline and measure against the recorded previous close.
+  const dayChangePct = prev.prevNav != null && prev.prevNav > 0
+    ? ((liveNav - prev.prevNav) / prev.prevNav) * 100
+    : undefined;
+  return { dayChangePct, point: { ...prev, curNav: liveNav } };
 }
 
 // ─── Physical gold / silver via Yahoo futures ──────────────────────────────────
@@ -262,7 +324,7 @@ async function fetchCoinGeckoBatch(
 
 // ─── Asset-type classification ─────────────────────────────────────────────────
 
-const MF_TYPES = new Set(['equity_mutual_fund', 'hybrid_mutual_fund', 'debt_mutual_fund']);
+export const MF_TYPES = new Set(['equity_mutual_fund', 'hybrid_mutual_fund', 'debt_mutual_fund']);
 const NSE_STOCK_TYPES = new Set(['stock', 'esop', 'rsu', 'reit', 'invit']);
 const CRYPTO_TYPE = 'crypto';
 const US_STOCK_TYPE = 'us_stock';
@@ -301,7 +363,12 @@ export function countRefreshable(assets: Asset[]): number {
 
 // ─── Main refresh — mirrors update_all_prices / _build_price_cache ────────────
 
-export async function refreshPrices(assets: Asset[]): Promise<Map<number, LivePrice>> {
+export async function refreshPrices(
+  assets: Asset[],
+  // Persisted per-ISIN NAV history, updated in place so the caller can save it.
+  // AMFI returns only the current NAV, so this is the sole source of MF day change.
+  mfNavHistory: Map<string, MfNavPoint> = new Map(),
+): Promise<Map<number, LivePrice>> {
   const updates = new Map<number, LivePrice>();
   // Stale spark entries contribute prevClose even when price must come from chart fallback
   const savedPrevClose = new Map<number, number>();
@@ -445,10 +512,18 @@ export async function refreshPrices(assets: Asset[]): Promise<Map<number, LivePr
   }
 
   // ── Phase 3: MF prices via AMFI (cache is warm; all lookups are in-memory) ─
+  // AMFI gives the current NAV only, so the day change comes from mfNavHistory:
+  // when AMFI's NAV date moves past the one we last recorded, the prior NAV
+  // becomes the previous close. The history map is mutated for the caller to persist.
   await Promise.all(mfAssets.map(async (a) => {
     if (updates.has(a.id)) return;
-    const nav = await fetchMfNav(a.isin!);
-    if (nav) updates.set(a.id, { price: nav, dayChangePct: undefined, fetchedAt: now });
+    const hit = await fetchMfNav(a.isin!);
+    if (!hit) return;
+    const { dayChangePct, point } = applyMfNavObservation(
+      mfNavHistory.get(a.isin!), hit.nav, hit.date,
+    );
+    mfNavHistory.set(a.isin!, point);
+    updates.set(a.id, { price: hit.nav, dayChangePct, fetchedAt: now });
   }));
 
   // ── Phase 4: Individual chart-API fallback ────────────────────────────────

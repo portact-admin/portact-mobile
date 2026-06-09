@@ -30,6 +30,9 @@ export function computePortfolioSummary(
     dematCash,
     cryptoCash,
     assetCount: activeAssets.length,
+    // Populated by refreshLivePrices once live prices (and prev-close) are known.
+    dailyChange: 0,
+    dailyChangePercent: 0,
   };
 }
 

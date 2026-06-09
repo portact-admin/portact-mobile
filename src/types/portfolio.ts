@@ -85,6 +85,34 @@ export interface PortfolioSummary {
   dematCash: number;
   cryptoCash: number;
   assetCount: number;
+  /** Net worth change since the previous market close (₹). 0 until live prices are refreshed. */
+  dailyChange: number;
+  /** dailyChange as a % of the day's baseline net worth. */
+  dailyChangePercent: number;
+}
+
+/**
+ * Snapshot of the day's baseline net worth — the value derived from each asset's
+ * previous market close. Captured once per IST day and overwritten when a new
+ * backup for that day is loaded. "Daily Change" is measured against this.
+ */
+export interface DailyBaseline {
+  date: string;     // YYYY-MM-DD in IST
+  netWorth: number; // previous-close net worth for the day (₹)
+}
+
+/**
+ * Persisted NAV observation for one mutual fund (keyed by ISIN).
+ * AMFI only ever publishes the current NAV, so to derive a day change we
+ * remember the latest NAV we saw and the one before it (the "previous close").
+ * `curDate` / `prevDate` are AMFI's own NAV dates (YYYY-MM-DD) — the previous
+ * NAV is promoted to "current" only when AMFI publishes a newer NAV date.
+ */
+export interface MfNavPoint {
+  curNav: number;
+  curDate: string;
+  prevNav: number | null;
+  prevDate: string | null;
 }
 
 export interface MonthlyExpense {

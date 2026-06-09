@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { DailyBaseline, MfNavPoint } from '@models/portfolio';
 
 // Large backup JSON is stored as a plain file — AsyncStorage (SQLite) cannot
 // handle multi-MB strings reliably on Android.
@@ -13,6 +14,8 @@ const KEYS = {
   GOOGLE_WEB_CLIENT_ID: 'portact:google_web_client_id',
   LAST_SYNC_AT: 'portact:last_sync_at',
   ONBOARDING_DONE: 'portact:onboarding_done',
+  DAILY_BASELINE: 'portact:daily_baseline',
+  MF_NAV_HISTORY: 'portact:mf_nav_history',
 } as const;
 
 export interface BackupMeta {
@@ -80,6 +83,40 @@ export const storage = {
 
   async getLastSyncAt(): Promise<string | null> {
     return get(KEYS.LAST_SYNC_AT);
+  },
+
+  async saveDailyBaseline(baseline: DailyBaseline): Promise<void> {
+    await set(KEYS.DAILY_BASELINE, JSON.stringify(baseline));
+  },
+
+  async loadDailyBaseline(): Promise<DailyBaseline | null> {
+    const raw = await get(KEYS.DAILY_BASELINE);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as DailyBaseline;
+    } catch {
+      return null;
+    }
+  },
+
+  async clearDailyBaseline(): Promise<void> {
+    await AsyncStorage.removeItem(KEYS.DAILY_BASELINE);
+  },
+
+  // MF NAV history (keyed by ISIN) — survives backup reloads, since observed
+  // NAVs are fund-level facts independent of which backup is loaded.
+  async saveMfNavHistory(history: Record<string, MfNavPoint>): Promise<void> {
+    await set(KEYS.MF_NAV_HISTORY, JSON.stringify(history));
+  },
+
+  async loadMfNavHistory(): Promise<Record<string, MfNavPoint>> {
+    const raw = await get(KEYS.MF_NAV_HISTORY);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, MfNavPoint>;
+    } catch {
+      return {};
+    }
   },
 
   async markOnboardingDone(): Promise<void> {
