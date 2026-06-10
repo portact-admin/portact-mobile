@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { usePortfolioStore } from '@store/usePortfolioStore';
 import { googleDriveService, extractUserName, WEB_CLIENT_ID, DRIVE_SCOPES, DriveFile } from '@services/googleDrive';
-import { storage, BackupMeta } from '@services/storage';
+import { storage, BackupMeta, MAX_BACKUP_BYTES } from '@services/storage';
 import { Typography } from '@components/ui/Typography';
 import { formatRelativeDate } from '@utils/formatters';
 
@@ -84,14 +84,28 @@ export default function AppSplash() {
     GoogleSignin.configure({ webClientId: WEB_CLIENT_ID, scopes: DRIVE_SCOPES });
 
     (async () => {
-      // Bound the local read so a stalled FileSystem/AsyncStorage call can never
-      // leave the splash hanging forever (observed after long sessions / if the
-      // backup file was left partial by a killed write). If it doesn't finish in
-      // time we fall through — the Drive check below can still restore the data.
-      await Promise.race([
-        loadFromStorage(),
-        new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
-      ]);
+      // Check the saved file's size *before* reading it. A backup past the safe
+      // ceiling can't be read + parsed without risking an out-of-memory crash
+      // (the old frozen-splash hang) — OOM isn't catchable, so the only safe move
+      // is to not read it. We can't predict OOM precisely, but size is a reliable
+      // proxy. Warn the user and fall through to the Drive check, which can
+      // restore a fresh copy, instead of crash-looping on every launch.
+      const backupSize = await storage.backupFileSize();
+      if (backupSize != null && backupSize > MAX_BACKUP_BYTES) {
+        Alert.alert(
+          'Saved data too large',
+          `Your local data file is ${(backupSize / (1024 * 1024)).toFixed(0)} MB, which is too large to open safely — this is what was freezing the app on startup. It will be reloaded from Google Drive instead.`,
+        );
+      } else {
+        // Bound the local read so a stalled FileSystem/AsyncStorage call can never
+        // leave the splash hanging forever (observed after long sessions / if the
+        // backup file was left partial by a killed write). If it doesn't finish in
+        // time we fall through — the Drive check below can still restore the data.
+        await Promise.race([
+          loadFromStorage(),
+          new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
+        ]);
+      }
       const localLoaded = usePortfolioStore.getState().status === 'loaded';
       if (localLoaded) setHasData(true);
 

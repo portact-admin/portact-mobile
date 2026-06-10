@@ -47,6 +47,81 @@ export function parseBackupJson(raw: string): BackupFile {
   return data as unknown as BackupFile;
 }
 
+/**
+ * Remove the `asset_snapshots` arrays from a backup JSON *string*, replacing each
+ * with `[]`, without first building the whole object graph.
+ *
+ * Why this exists: the backend export writes one AssetSnapshot per holding **per
+ * day, forever** (eod_snapshot_service), so portfolio_snapshots[].asset_snapshots
+ * is the only unbounded term in the file. Left alone it eventually grows large
+ * enough that the cold-start read + JSON.parse freezes / OOM-crashes the JS
+ * thread, which leaves the native splash frozen on every launch until the user
+ * clears app data. The app only ever uses snapshot-level totals
+ * (total_current_value); asset_snapshots is a rarely-hit fallback in
+ * computeSnapshots, so dropping it is behaviour-preserving.
+ *
+ * Operates on the raw string (not the parsed object) so it stays memory-light
+ * enough to rescue a file that's already too big to JSON.parse. Scans for the
+ * key, then walks to the matching `]` tracking bracket depth and string state so
+ * brackets/quotes inside string values can't fool it.
+ */
+export function stripAssetSnapshots(raw: string): { json: string; changed: boolean } {
+  const KEY = '"asset_snapshots"';
+  const isWs = (c: string) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+
+  const chunks: string[] = [];
+  let cursor = 0;       // copied into output up to here
+  let searchFrom = 0;
+  let changed = false;
+
+  for (;;) {
+    const keyIdx = raw.indexOf(KEY, searchFrom);
+    if (keyIdx === -1) break;
+
+    // Expect  "asset_snapshots" <ws>? : <ws>? [   — otherwise it's not the array
+    // we want (e.g. the literal string used as a value), so skip past it.
+    let i = keyIdx + KEY.length;
+    while (i < raw.length && isWs(raw[i])) i++;
+    if (raw[i] !== ':') { searchFrom = keyIdx + KEY.length; continue; }
+    i++;
+    while (i < raw.length && isWs(raw[i])) i++;
+    if (raw[i] !== '[') { searchFrom = keyIdx + KEY.length; continue; }
+
+    const arrStart = i;
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+    let j = arrStart;
+    for (; j < raw.length; j++) {
+      const ch = raw[j];
+      if (inStr) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '[') depth++;
+      else if (ch === ']') { depth--; if (depth === 0) { j++; break; } }
+    }
+
+    // Already `[]` (e.g. a file we slimmed before) — nothing to strip. Skip it
+    // without marking `changed`, so re-reading a slim file is a true no-op and
+    // doesn't trigger a redundant rewrite on every launch.
+    if (j - arrStart === 2) { searchFrom = j; continue; }
+
+    // Replace raw[arrStart, j) (the whole "[...]") with "[]".
+    chunks.push(raw.slice(cursor, arrStart), '[]');
+    cursor = j;
+    changed = true;
+    searchFrom = j;
+  }
+
+  if (!changed) return { json: raw, changed: false };
+  chunks.push(raw.slice(cursor));
+  return { json: chunks.join(''), changed: true };
+}
+
 export function normaliseAsset(
   raw: RawAsset,
   typeDisplayMap: Record<string, string>,

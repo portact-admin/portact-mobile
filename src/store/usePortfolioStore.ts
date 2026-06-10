@@ -6,6 +6,7 @@ import {
   normaliseAsset,
   buildTypeDisplayMap,
   buildTypeCategoryMap,
+  stripAssetSnapshots,
   BackupParseError,
 } from '@services/backupParser';
 import { storage, BackupMeta } from '@services/storage';
@@ -240,8 +241,12 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   async loadFromString(json, meta) {
     set({ status: 'loading', error: null });
     try {
-      const backup = parseBackupJson(json);
-      await storage.saveBackup(json, { ...meta, exportVersion: backup.export_version });
+      // Drop the unbounded asset_snapshots before parsing — a freshly downloaded
+      // backup can carry hundreds of thousands of them, and parsing the full blob
+      // is what froze/OOM'd the JS thread. We only use snapshot-level totals.
+      const slim = stripAssetSnapshots(json).json;
+      const backup = parseBackupJson(slim);
+      await storage.saveBackup(slim, { ...meta, exportVersion: backup.export_version });
       const derived = deriveState(backup);
       const defaultPortfolio = derived.portfolios.find((p) => p.isDefault) ?? derived.portfolios[0] ?? null;
       // A fresh backup invalidates the day's baseline — drop it so the next
